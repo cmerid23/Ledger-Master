@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useLogin } from "@workspace/api-client-react";
-import { setToken } from "@/lib/auth";
+import { setToken, setBusinessId } from "@/lib/auth";
 import { setAdminToken } from "@/lib/adminAuth";
-import { BarChart3, Eye, EyeOff } from "lucide-react";
+import { BarChart3, Eye, EyeOff, Sparkles } from "lucide-react";
 
 export default function LoginPage() {
   const [, navigate] = useLocation();
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
+  const [demoLoading, setDemoLoading] = useState(false);
 
   const login = useLogin();
 
@@ -19,11 +20,7 @@ export default function LoginPage() {
     setError("");
     try {
       const result = await login.mutateAsync({ data: { email, password } });
-
-      // Store the regular token for all users
       setToken(result.token);
-
-      // If admin: also store as admin token and route to admin portal
       if (result.isAdmin) {
         setAdminToken(result.token);
         navigate("/admin/dashboard");
@@ -33,6 +30,30 @@ export default function LoginPage() {
     } catch (err: unknown) {
       const e = err as { data?: { error?: string }; message?: string };
       setError(e?.data?.error || e?.message || "Login failed");
+    }
+  }
+
+  async function handleDemo() {
+    setError("");
+    setDemoLoading(true);
+    try {
+      const res = await fetch("/api/demo/login", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error ?? "Demo login failed");
+      }
+      const data = await res.json() as {
+        token: string;
+        businessId: number;
+        isAdmin: boolean;
+      };
+      setToken(data.token);
+      setBusinessId(data.businessId);
+      navigate("/dashboard");
+    } catch (err: unknown) {
+      setError((err as Error).message || "Failed to load demo");
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -65,9 +86,27 @@ export default function LoginPage() {
           </div>
 
           <h1 className="text-2xl font-bold text-foreground mb-1">Welcome back</h1>
-          <p className="text-muted-foreground text-sm mb-8">
+          <p className="text-muted-foreground text-sm mb-6">
             Sign in to your account — admins are redirected to the admin portal automatically
           </p>
+
+          {/* Demo account button */}
+          <button
+            type="button"
+            onClick={handleDemo}
+            disabled={demoLoading || login.isPending}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 mb-5 rounded-md border-2 border-primary/30 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/10 hover:border-primary/50 disabled:opacity-50 transition-all"
+          >
+            <Sparkles className="w-4 h-4" />
+            {demoLoading ? "Loading demo..." : "Try demo account"}
+          </button>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 mb-5">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground">or sign in with your account</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
 
           {error && (
             <div className="mb-4 px-3 py-2.5 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/20">
@@ -111,7 +150,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={login.isPending}
+              disabled={login.isPending || demoLoading}
               className="w-full py-2.5 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {login.isPending ? "Signing in..." : "Sign in"}
