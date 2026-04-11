@@ -1,5 +1,5 @@
-import { Link, useLocation, useRoute } from "wouter";
-import { useState } from "react";
+import { Link, useLocation } from "wouter";
+import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard,
   BookOpen,
@@ -14,9 +14,14 @@ import {
   Menu,
   X,
   CheckCircle,
-  RefreshCw,
+  Check,
+  Plus,
 } from "lucide-react";
-import { useListBusinesses } from "@workspace/api-client-react";
+import {
+  useListBusinesses,
+  useCreateBusiness,
+  getListBusinessesQueryKey,
+} from "@workspace/api-client-react";
 import { getToken, clearToken, clearBusinessId, getBusinessId, setBusinessId } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -38,14 +43,36 @@ const navItems = [
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
+const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "SGD", "INR", "MXN"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 export function Layout({ children, businessId, onBusinessChange }: LayoutProps) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCurrency, setNewCurrency] = useState("USD");
+  const [newFiscalStart, setNewFiscalStart] = useState(1);
+  const [addError, setAddError] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   const { data: businesses } = useListBusinesses({ query: { enabled: !!getToken() } });
+  const createBusiness = useCreateBusiness();
   const currentBusiness = businesses?.find((b) => b.id === businessId);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setBizDropdownOpen(false);
+        setShowAddForm(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   function handleLogout() {
     clearToken();
@@ -58,8 +85,31 @@ export function Layout({ children, businessId, onBusinessChange }: LayoutProps) 
     setBusinessId(id);
     onBusinessChange(id);
     setBizDropdownOpen(false);
+    setShowAddForm(false);
     queryClient.clear();
   }
+
+  async function handleAddBusiness(e: React.FormEvent) {
+    e.preventDefault();
+    setAddError("");
+    try {
+      const biz = await createBusiness.mutateAsync({
+        data: { name: newName, currency: newCurrency, fiscalYearStart: newFiscalStart },
+      });
+      queryClient.invalidateQueries({ queryKey: getListBusinessesQueryKey() });
+      setNewName("");
+      setNewCurrency("USD");
+      setNewFiscalStart(1);
+      setShowAddForm(false);
+      setBizDropdownOpen(false);
+      handleSwitchBusiness(biz.id);
+    } catch (err: unknown) {
+      const e = err as { data?: { error?: string }; message?: string };
+      setAddError(e?.data?.error || e?.message || "Failed to create company");
+    }
+  }
+
+  const bizCount = businesses?.length ?? 0;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -89,46 +139,122 @@ export function Layout({ children, businessId, onBusinessChange }: LayoutProps) 
           </button>
         </div>
 
-        {/* Business switcher */}
-        <div className="px-3 py-3 border-b border-sidebar-border relative">
+        {/* Company switcher */}
+        <div className="px-3 py-3 border-b border-sidebar-border relative" ref={dropdownRef}>
           <button
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-sidebar-accent transition-colors text-sm"
-            onClick={() => setBizDropdownOpen(!bizDropdownOpen)}
+            onClick={() => { setBizDropdownOpen(!bizDropdownOpen); setShowAddForm(false); }}
           >
-            <Building2 className="w-4 h-4 flex-shrink-0 text-sidebar-primary" />
-            <span className="flex-1 text-left truncate text-sidebar-foreground">
-              {currentBusiness?.name ?? "Select business"}
-            </span>
-            <ChevronDown className={cn("w-4 h-4 transition-transform", bizDropdownOpen && "rotate-180")} />
+            <div className="w-6 h-6 rounded bg-sidebar-primary/20 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-3.5 h-3.5 text-sidebar-primary" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="truncate text-sidebar-foreground text-sm font-medium leading-tight">
+                {currentBusiness?.name ?? "Select company"}
+              </div>
+              {bizCount > 1 && (
+                <div className="text-sidebar-foreground/50 text-xs leading-tight">
+                  {bizCount} companies
+                </div>
+              )}
+            </div>
+            <ChevronDown className={cn("w-4 h-4 text-sidebar-foreground/50 flex-shrink-0 transition-transform", bizDropdownOpen && "rotate-180")} />
           </button>
 
           {bizDropdownOpen && (
-            <div className="absolute left-3 right-3 top-full mt-1 z-50 bg-card border border-card-border rounded-md shadow-lg overflow-hidden">
-              {businesses?.map((biz) => (
-                <button
-                  key={biz.id}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-muted transition-colors",
-                    biz.id === businessId && "text-primary font-medium"
-                  )}
-                  onClick={() => handleSwitchBusiness(biz.id)}
-                >
-                  <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="truncate">{biz.name}</span>
-                </button>
-              ))}
-              <Link
-                href="/settings"
-                className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-muted border-t border-border transition-colors"
-                onClick={() => setBizDropdownOpen(false)}
-              >
-                + Add business
-              </Link>
+            <div className="absolute left-3 right-3 top-full mt-1 z-50 bg-card border border-card-border rounded-lg shadow-xl overflow-hidden">
+              {/* Company list */}
+              <div className="max-h-52 overflow-y-auto">
+                {businesses?.map((biz) => (
+                  <button
+                    key={biz.id}
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left hover:bg-muted transition-colors",
+                      biz.id === businessId ? "bg-primary/5" : ""
+                    )}
+                    onClick={() => handleSwitchBusiness(biz.id)}
+                  >
+                    <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="w-3.5 h-3.5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={cn("truncate font-medium", biz.id === businessId ? "text-primary" : "text-foreground")}>
+                        {biz.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{biz.currency}</div>
+                    </div>
+                    {biz.id === businessId && (
+                      <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Add company */}
+              <div className="border-t border-border">
+                {!showAddForm ? (
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    onClick={() => setShowAddForm(true)}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add new company
+                  </button>
+                ) : (
+                  <form onSubmit={handleAddBusiness} className="p-3 space-y-2">
+                    <p className="text-xs font-medium text-foreground mb-1.5">New company</p>
+                    {addError && (
+                      <p className="text-xs text-destructive">{addError}</p>
+                    )}
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Company name"
+                      required
+                      autoFocus
+                      className="w-full px-2.5 py-1.5 rounded border border-input bg-background text-foreground text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <div className="flex gap-1.5">
+                      <select
+                        value={newCurrency}
+                        onChange={(e) => setNewCurrency(e.target.value)}
+                        className="flex-1 px-2 py-1.5 rounded border border-input bg-background text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <select
+                        value={newFiscalStart}
+                        onChange={(e) => setNewFiscalStart(Number(e.target.value))}
+                        className="flex-1 px-2 py-1.5 rounded border border-input bg-background text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-1.5 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => { setShowAddForm(false); setAddError(""); }}
+                        className="flex-1 py-1.5 rounded border border-border text-xs text-muted-foreground hover:bg-muted transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={createBusiness.isPending}
+                        className="flex-1 py-1.5 rounded bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                      >
+                        {createBusiness.isPending ? "Creating…" : "Create"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Nav items */}
+        {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
           {navItems.map(({ path, label, icon: Icon }) => {
             const active = location === path || location.startsWith(path + "/");
@@ -151,7 +277,7 @@ export function Layout({ children, businessId, onBusinessChange }: LayoutProps) 
           })}
         </nav>
 
-        {/* Logout */}
+        {/* Sign out */}
         <div className="px-3 py-3 border-t border-sidebar-border">
           <button
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
@@ -165,7 +291,7 @@ export function Layout({ children, businessId, onBusinessChange }: LayoutProps) 
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar (mobile) */}
+        {/* Mobile top bar */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card lg:hidden">
           <button onClick={() => setSidebarOpen(true)}>
             <Menu className="w-5 h-5" />
