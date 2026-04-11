@@ -1,22 +1,39 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: ClearLedger accounting API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: businesses
+    description: Business management
+  - name: accounts
+    description: Chart of accounts
+  - name: transactions
+    description: Transactions
+  - name: journalEntries
+    description: Journal entries
+  - name: reconciliations
+    description: Bank reconciliation
+  - name: reports
+    description: Financial reports
+  - name: upload
+    description: File uploads
+  - name: dashboard
+    description: Dashboard data
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +41,733 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Auth
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  # Businesses
+  /businesses:
+    get:
+      operationId: listBusinesses
+      tags: [businesses]
+      summary: List user businesses
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Business"
+    post:
+      operationId: createBusiness
+      tags: [businesses]
+      summary: Create a business
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBusinessBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Business"
+
+  /businesses/{businessId}:
+    get:
+      operationId: getBusiness
+      tags: [businesses]
+      summary: Get a business
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Business"
+    patch:
+      operationId: updateBusiness
+      tags: [businesses]
+      summary: Update a business
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBusinessBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Business"
+    delete:
+      operationId: deleteBusiness
+      tags: [businesses]
+      summary: Delete a business
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Accounts (Chart of Accounts)
+  /businesses/{businessId}/accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounts]
+      summary: List accounts for a business
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Account"
+    post:
+      operationId: createAccount
+      tags: [accounts]
+      summary: Create an account
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+
+  /businesses/{businessId}/accounts/{accountId}:
+    patch:
+      operationId: updateAccount
+      tags: [accounts]
+      summary: Update an account
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+    delete:
+      operationId: deleteAccount
+      tags: [accounts]
+      summary: Delete/archive an account
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Transactions
+  /businesses/{businessId}/transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List transactions
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: accountId
+          schema:
+            type: integer
+        - in: query
+          name: startDate
+          schema:
+            type: string
+        - in: query
+          name: endDate
+          schema:
+            type: string
+        - in: query
+          name: reconciled
+          schema:
+            type: boolean
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionListResponse"
+    post:
+      operationId: createTransaction
+      tags: [transactions]
+      summary: Create a transaction
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /businesses/{businessId}/transactions/{transactionId}:
+    patch:
+      operationId: updateTransaction
+      tags: [transactions]
+      summary: Update a transaction
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTransactionBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+    delete:
+      operationId: deleteTransaction
+      tags: [transactions]
+      summary: Delete a transaction
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /businesses/{businessId}/transactions/bulk-categorize:
+    post:
+      operationId: bulkCategorizeTransactions
+      tags: [transactions]
+      summary: Bulk categorize transactions
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkCategorizeBody"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkCategorizeResponse"
+
+  # Upload
+  /businesses/{businessId}/upload/csv:
+    post:
+      operationId: uploadCsv
+      tags: [upload]
+      summary: Upload CSV bank statement
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadCsvBody"
+      responses:
+        "200":
+          description: Parsed transactions preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParsedTransactionsResponse"
+
+  /businesses/{businessId}/upload/confirm:
+    post:
+      operationId: confirmUpload
+      tags: [upload]
+      summary: Confirm and import parsed transactions
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmUploadBody"
+      responses:
+        "201":
+          description: Imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmUploadResponse"
+
+  # Journal Entries
+  /businesses/{businessId}/journal-entries:
+    get:
+      operationId: listJournalEntries
+      tags: [journalEntries]
+      summary: List journal entries
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: startDate
+          schema:
+            type: string
+        - in: query
+          name: endDate
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JournalEntry"
+    post:
+      operationId: createJournalEntry
+      tags: [journalEntries]
+      summary: Create a manual journal entry
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJournalEntryBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+
+  # Reconciliations
+  /businesses/{businessId}/reconciliations:
+    get:
+      operationId: listReconciliations
+      tags: [reconciliations]
+      summary: List reconciliations
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reconciliation"
+    post:
+      operationId: createReconciliation
+      tags: [reconciliations]
+      summary: Start a reconciliation
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReconciliationBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reconciliation"
+
+  /businesses/{businessId}/reconciliations/{reconciliationId}/run:
+    post:
+      operationId: runReconciliation
+      tags: [reconciliations]
+      summary: Run auto-reconciliation engine
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: reconciliationId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reconciliation results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationResult"
+
+  /businesses/{businessId}/reconciliations/{reconciliationId}/complete:
+    post:
+      operationId: completeReconciliation
+      tags: [reconciliations]
+      summary: Mark reconciliation as complete
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: reconciliationId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reconciliation"
+
+  # Reports
+  /businesses/{businessId}/reports/profit-loss:
+    get:
+      operationId: getProfitLossReport
+      tags: [reports]
+      summary: Get P&L report
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: startDate
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: endDate
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitLossReport"
+
+  /businesses/{businessId}/reports/balance-sheet:
+    get:
+      operationId: getBalanceSheetReport
+      tags: [reports]
+      summary: Get balance sheet
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: asOfDate
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceSheetReport"
+
+  /businesses/{businessId}/reports/trial-balance:
+    get:
+      operationId: getTrialBalanceReport
+      tags: [reports]
+      summary: Get trial balance
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: asOfDate
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrialBalanceReport"
+
+  # Dashboard
+  /businesses/{businessId}/dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary stats
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /businesses/{businessId}/dashboard/revenue-chart:
+    get:
+      operationId: getRevenueChart
+      tags: [dashboard]
+      summary: Get 12-month revenue vs expenses chart data
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MonthlyChartPoint"
+
+  /businesses/{businessId}/dashboard/recent-transactions:
+    get:
+      operationId: getRecentTransactions
+      tags: [dashboard]
+      summary: Get recent transactions for dashboard
+      parameters:
+        - in: path
+          name: businessId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +778,685 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    # Auth schemas
+    RegisterBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        name:
+          type: string
+      required:
+        - email
+        - password
+        - name
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - email
+        - name
+        - createdAt
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required:
+        - token
+        - user
+
+    # Business schemas
+    Business:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        currency:
+          type: string
+        fiscalYearStart:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - name
+        - currency
+        - fiscalYearStart
+        - createdAt
+
+    CreateBusinessBody:
+      type: object
+      properties:
+        name:
+          type: string
+        currency:
+          type: string
+        fiscalYearStart:
+          type: integer
+      required:
+        - name
+        - currency
+        - fiscalYearStart
+
+    UpdateBusinessBody:
+      type: object
+      properties:
+        name:
+          type: string
+        currency:
+          type: string
+        fiscalYearStart:
+          type: integer
+
+    # Account schemas
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+        businessId:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [asset, liability, equity, income, expense]
+        parentAccountId:
+          type: ["integer", "null"]
+        code:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+      required:
+        - id
+        - businessId
+        - name
+        - type
+        - isActive
+
+    CreateAccountBody:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [asset, liability, equity, income, expense]
+        parentAccountId:
+          type: ["integer", "null"]
+        code:
+          type: ["string", "null"]
+      required:
+        - name
+        - type
+
+    UpdateAccountBody:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [asset, liability, equity, income, expense]
+        parentAccountId:
+          type: ["integer", "null"]
+        code:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+
+    # Transaction schemas
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        businessId:
+          type: integer
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [debit, credit]
+        accountId:
+          type: ["integer", "null"]
+        accountName:
+          type: ["string", "null"]
+        source:
+          type: string
+          enum: [manual, plaid, upload]
+        reconciled:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - businessId
+        - date
+        - description
+        - amount
+        - type
+        - source
+        - reconciled
+        - createdAt
+
+    TransactionListResponse:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - transactions
+        - total
+        - page
+        - limit
+
+    CreateTransactionBody:
+      type: object
+      properties:
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [debit, credit]
+        accountId:
+          type: ["integer", "null"]
+        source:
+          type: string
+          enum: [manual, plaid, upload]
+      required:
+        - date
+        - description
+        - amount
+        - type
+
+    UpdateTransactionBody:
+      type: object
+      properties:
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [debit, credit]
+        accountId:
+          type: ["integer", "null"]
+        reconciled:
+          type: boolean
+
+    BulkCategorizeBody:
+      type: object
+      properties:
+        transactionIds:
+          type: array
+          items:
+            type: integer
+        accountId:
+          type: integer
+      required:
+        - transactionIds
+        - accountId
+
+    BulkCategorizeResponse:
+      type: object
+      properties:
+        updated:
+          type: integer
+      required:
+        - updated
+
+    # Upload schemas
+    ParsedTransaction:
+      type: object
+      properties:
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [debit, credit]
+      required:
+        - date
+        - description
+        - amount
+        - type
+
+    UploadCsvBody:
+      type: object
+      properties:
+        csvContent:
+          type: string
+      required:
+        - csvContent
+
+    ParsedTransactionsResponse:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParsedTransaction"
+        count:
+          type: integer
+      required:
+        - transactions
+        - count
+
+    ConfirmUploadBody:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParsedTransaction"
+        accountId:
+          type: ["integer", "null"]
+      required:
+        - transactions
+
+    ConfirmUploadResponse:
+      type: object
+      properties:
+        imported:
+          type: integer
+      required:
+        - imported
+
+    # Journal Entry schemas
+    JournalLine:
+      type: object
+      properties:
+        id:
+          type: integer
+        journalEntryId:
+          type: integer
+        accountId:
+          type: integer
+        accountName:
+          type: ["string", "null"]
+        debitAmount:
+          type: number
+        creditAmount:
+          type: number
+      required:
+        - id
+        - journalEntryId
+        - accountId
+        - debitAmount
+        - creditAmount
+
+    JournalEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        businessId:
+          type: integer
+        date:
+          type: string
+        memo:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalLine"
+      required:
+        - id
+        - businessId
+        - date
+        - createdAt
+        - lines
+
+    CreateJournalLineInput:
+      type: object
+      properties:
+        accountId:
+          type: integer
+        debitAmount:
+          type: number
+        creditAmount:
+          type: number
+      required:
+        - accountId
+        - debitAmount
+        - creditAmount
+
+    CreateJournalEntryBody:
+      type: object
+      properties:
+        date:
+          type: string
+        memo:
+          type: ["string", "null"]
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreateJournalLineInput"
+      required:
+        - date
+        - lines
+
+    # Reconciliation schemas
+    Reconciliation:
+      type: object
+      properties:
+        id:
+          type: integer
+        businessId:
+          type: integer
+        bankAccountName:
+          type: string
+        statementDate:
+          type: string
+        openingBalance:
+          type: number
+        closingBalance:
+          type: number
+        status:
+          type: string
+          enum: [pending, in_progress, completed]
+        createdAt:
+          type: string
+      required:
+        - id
+        - businessId
+        - bankAccountName
+        - statementDate
+        - openingBalance
+        - closingBalance
+        - status
+        - createdAt
+
+    CreateReconciliationBody:
+      type: object
+      properties:
+        bankAccountName:
+          type: string
+        statementDate:
+          type: string
+        openingBalance:
+          type: number
+        closingBalance:
+          type: number
+      required:
+        - bankAccountName
+        - statementDate
+        - openingBalance
+        - closingBalance
+
+    MatchedPair:
+      type: object
+      properties:
+        bankTransaction:
+          $ref: "#/components/schemas/Transaction"
+        journalEntry:
+          $ref: "#/components/schemas/JournalEntry"
+      required:
+        - bankTransaction
+        - journalEntry
+
+    ReconciliationResult:
+      type: object
+      properties:
+        matched:
+          type: array
+          items:
+            $ref: "#/components/schemas/MatchedPair"
+        unmatchedBank:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        unmatchedJournal:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalEntry"
+        summary:
+          $ref: "#/components/schemas/ReconciliationSummary"
+      required:
+        - matched
+        - unmatchedBank
+        - unmatchedJournal
+        - summary
+
+    ReconciliationSummary:
+      type: object
+      properties:
+        totalMatched:
+          type: integer
+        totalUnmatchedBank:
+          type: integer
+        totalUnmatchedJournal:
+          type: integer
+        openingBalance:
+          type: number
+        closingBalance:
+          type: number
+        difference:
+          type: number
+      required:
+        - totalMatched
+        - totalUnmatchedBank
+        - totalUnmatchedJournal
+        - openingBalance
+        - closingBalance
+        - difference
+
+    # Report schemas
+    ReportLineItem:
+      type: object
+      properties:
+        accountId:
+          type: integer
+        accountName:
+          type: string
+        accountCode:
+          type: ["string", "null"]
+        amount:
+          type: number
+      required:
+        - accountId
+        - accountName
+        - amount
+
+    ReportSection:
+      type: object
+      properties:
+        title:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportLineItem"
+        total:
+          type: number
+      required:
+        - title
+        - items
+        - total
+
+    ProfitLossReport:
+      type: object
+      properties:
+        startDate:
+          type: string
+        endDate:
+          type: string
+        income:
+          $ref: "#/components/schemas/ReportSection"
+        expenses:
+          $ref: "#/components/schemas/ReportSection"
+        netProfit:
+          type: number
+      required:
+        - startDate
+        - endDate
+        - income
+        - expenses
+        - netProfit
+
+    BalanceSheetReport:
+      type: object
+      properties:
+        asOfDate:
+          type: string
+        assets:
+          $ref: "#/components/schemas/ReportSection"
+        liabilities:
+          $ref: "#/components/schemas/ReportSection"
+        equity:
+          $ref: "#/components/schemas/ReportSection"
+        totalLiabilitiesAndEquity:
+          type: number
+      required:
+        - asOfDate
+        - assets
+        - liabilities
+        - equity
+        - totalLiabilitiesAndEquity
+
+    TrialBalanceLineItem:
+      type: object
+      properties:
+        accountId:
+          type: integer
+        accountName:
+          type: string
+        accountCode:
+          type: ["string", "null"]
+        accountType:
+          type: string
+        debit:
+          type: number
+        credit:
+          type: number
+      required:
+        - accountId
+        - accountName
+        - accountType
+        - debit
+        - credit
+
+    TrialBalanceReport:
+      type: object
+      properties:
+        asOfDate:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrialBalanceLineItem"
+        totalDebits:
+          type: number
+        totalCredits:
+          type: number
+        isBalanced:
+          type: boolean
+      required:
+        - asOfDate
+        - items
+        - totalDebits
+        - totalCredits
+        - isBalanced
+
+    # Dashboard schemas
+    DashboardSummary:
+      type: object
+      properties:
+        totalRevenue:
+          type: number
+        totalExpenses:
+          type: number
+        netProfit:
+          type: number
+        cashBalance:
+          type: number
+        reconciliationStatus:
+          type: string
+          enum: [up_to_date, needs_review]
+        transactionCount:
+          type: integer
+      required:
+        - totalRevenue
+        - totalExpenses
+        - netProfit
+        - cashBalance
+        - reconciliationStatus
+        - transactionCount
+
+    MonthlyChartPoint:
+      type: object
+      properties:
+        month:
+          type: string
+        revenue:
+          type: number
+        expenses:
+          type: number
+      required:
+        - month
+        - revenue
+        - expenses

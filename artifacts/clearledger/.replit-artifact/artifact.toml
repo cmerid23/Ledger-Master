@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ClearLedger"
+version = "1.0.0"
+id = "artifacts/clearledger"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23158
+
+[services.development]
+run = "pnpm --filter @workspace/clearledger run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/clearledger", "run", "build" ]
+publicDir = "artifacts/clearledger/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23158"
+BASE_PATH = "/"

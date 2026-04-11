@@ -1,0 +1,153 @@
+Build a full-stack advanced accounting web application called "ClearLedger" with the following complete feature set:
+Tech Stack:
+
+Frontend: React + Tailwind CSS + React Router
+Backend: Node.js + Express (or Python FastAPI if preferred)
+Database: PostgreSQL (use Supabase free tier) or SQLite for local dev
+Authentication: JWT-based login/signup with multi-business support
+File parsing: Papa Parse (CSV), pdf-parse or pdfplumber (for PDF statements)
+Bank connection: Plaid API (use sandbox mode for development)
+PDF export: pdfkit or puppeteer
+Charts: Recharts or Chart.js
+
+
+CORE FEATURES TO BUILD:
+1. Multi-Business / Multi-Company Support
+
+Each user can create and manage multiple businesses (e.g. "Bakery LLC", "Consulting Co")
+Each business has its own isolated: chart of accounts, transactions, journals, reports
+Business switcher in the top nav bar
+
+2. Chart of Accounts
+
+Each business has a full customizable Chart of Accounts (COA)
+Account types: Assets, Liabilities, Equity, Income, Expenses
+Sub-accounts supported (e.g. "Operating Expenses > Rent")
+Pre-populate with a standard COA template on business creation
+CRUD operations: add, edit, delete, archive accounts
+
+3. Bank Integration (Plaid)
+
+Connect real bank accounts via Plaid Link (use Plaid Sandbox for dev)
+Automatically pull bank transactions (date, description, amount, category)
+Map Plaid transactions to COA accounts
+Show connection status per business
+
+4. Bank Statement Upload (CSV + PDF)
+
+Upload monthly bank statements as CSV or PDF
+Auto-parse transactions from uploaded file
+Support common bank CSV formats (date, description, debit, credit columns)
+Preview parsed transactions before confirming import
+
+5. Automatic Reconciliation
+
+Match imported/connected bank transactions against journal entries
+Auto-match by: amount + date proximity (within 3 days) + description similarity
+Show matched, unmatched, and review-needed transactions
+Mark transactions as reconciled; flag discrepancies
+Reconciliation summary: opening balance, closing balance, difference
+
+6. Double-Entry Journal / Ledger
+
+Every transaction creates a journal entry with debit and credit lines
+General Ledger view: filter by account, date range
+Manual journal entry creation (for adjustments, accruals)
+Trial Balance report (debits = credits check)
+
+7. Financial Reports
+
+Profit & Loss (Income Statement): monthly or yearly, compare periods
+Balance Sheet: assets vs liabilities + equity snapshot
+Cash Flow Statement: operating, investing, financing sections
+Date range picker for all reports (monthly, quarterly, yearly, custom)
+Export each report as PDF or CSV
+
+8. Dashboard
+
+Summary cards: Total Revenue, Total Expenses, Net Profit, Cash Balance
+Line chart: Revenue vs Expenses over 12 months
+Recent transactions list
+Reconciliation status badge (up to date / needs review)
+Quick actions: Add Transaction, Upload Statement, View Reports
+
+9. Transactions Module
+
+List all transactions with filters: date, account, type, amount, reconciled status
+Manual add transaction form
+Bulk categorize transactions to COA accounts
+Search and pagination
+
+10. Authentication & Settings
+
+User signup/login (JWT)
+User profile page
+Business settings: name, currency, fiscal year start month
+Invite team members to a business (optional, admin/viewer roles)
+
+
+DATABASE SCHEMA (create these tables):
+
+users (id, email, password_hash, created_at)
+businesses (id, user_id, name, currency, fiscal_year_start, created_at)
+accounts (id, business_id, name, type [asset/liability/equity/income/expense], parent_account_id, code, is_active)
+transactions (id, business_id, date, description, amount, type [debit/credit], account_id, source [manual/plaid/upload], reconciled, plaid_transaction_id)
+journal_entries (id, business_id, date, memo, created_at)
+journal_lines (id, journal_entry_id, account_id, debit_amount, credit_amount)
+reconciliations (id, business_id, bank_account_name, statement_date, opening_balance, closing_balance, status, created_at)
+bank_connections (id, business_id, plaid_item_id, plaid_access_token, institution_name, status)
+
+
+FOLDER STRUCTURE:
+/client        → React frontend
+  /src
+    /pages     → Dashboard, Accounts, Transactions, Reports, Reconcile, Settings
+    /components → Navbar, Charts, Tables, Forms, Modal
+    /context   → AuthContext, BusinessContext
+    /api       → Axios API calls
+/server        → Express backend
+  /routes      → auth, businesses, accounts, transactions, reports, plaid, upload
+  /controllers
+  /models
+  /middleware  → authMiddleware
+  /utils       → csvParser, pdfParser, reconcileEngine, reportBuilder
+/db            → migrations and seed data
+
+RECONCILIATION ALGORITHM (implement in /utils/reconcileEngine.js):
+
+Input: array of bank transactions, array of journal entries
+For each bank transaction, find journal entries where:
+
+Math.abs(bank.amount - journal.amount) < 0.01 AND
+Date difference <= 3 days AND
+Description similarity score > 0.6 (use basic string matching)
+
+
+Mark matched pairs as "reconciled"
+Return: matched[], unmatched_bank[], unmatched_journal[], summary stats
+
+
+UI REQUIREMENTS:
+
+Clean, professional design similar to QuickBooks/Wave
+Sidebar navigation with icons
+Responsive (works on desktop and tablet)
+Color scheme: dark sidebar (#1e293b), white main content, green accents for profit, red for expenses
+Loading states and error handling on all API calls
+Toast notifications for success/error actions
+
+
+START WITH:
+
+Set up project structure and install all dependencies
+Create the database schema and seed with a demo business + sample COA
+Build auth (signup/login) and business switcher
+Build Chart of Accounts CRUD
+Build transaction list + manual add
+Build CSV upload + parser
+Build reconciliation engine + UI
+Build P&L, Balance Sheet reports with PDF export
+Build dashboard with charts
+Add Plaid integration last (use sandbox keys)
+
+Use environment variables for: DATABASE_URL, JWT_SECRET, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV=sandbox
