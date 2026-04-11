@@ -20,7 +20,6 @@ import ReportsPage from "@/pages/Reports";
 import UploadPage from "@/pages/Upload";
 import SettingsPage from "@/pages/Settings";
 import SelectBusinessPage from "@/pages/SelectBusiness";
-import AdminLoginPage from "@/pages/admin/AdminLogin";
 import AdminDashboardPage from "@/pages/admin/AdminDashboard";
 import AdminUsersPage from "@/pages/admin/AdminUsers";
 import AdminBusinessesPage from "@/pages/admin/AdminBusinesses";
@@ -118,7 +117,9 @@ function Router() {
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
-      <Route path="/admin/login" component={AdminLoginPage} />
+      <Route path="/admin/login">
+        <Redirect to="/login" />
+      </Route>
       <Route path="/admin/*">
         <AdminApp />
       </Route>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useLogin } from "@workspace/api-client-react";
 import { setToken } from "@/lib/auth";
+import { setAdminToken } from "@/lib/adminAuth";
 import { BarChart3, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
@@ -18,8 +19,17 @@ export default function LoginPage() {
     setError("");
     try {
       const result = await login.mutateAsync({ data: { email, password } });
+
+      // Store the regular token for all users
       setToken(result.token);
-      navigate("/dashboard");
+
+      // If admin: also store as admin token and route to admin portal
+      if (result.isAdmin) {
+        setAdminToken(result.token);
+        navigate("/admin/dashboard");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err: unknown) {
       const e = err as { data?: { error?: string }; message?: string };
       setError(e?.data?.error || e?.message || "Login failed");
@@ -55,7 +65,9 @@ export default function LoginPage() {
           </div>
 
           <h1 className="text-2xl font-bold text-foreground mb-1">Welcome back</h1>
-          <p className="text-muted-foreground text-sm mb-8">Sign in to your account to continue</p>
+          <p className="text-muted-foreground text-sm mb-8">
+            Sign in to your account — admins are redirected to the admin portal automatically
+          </p>
 
           {error && (
             <div className="mb-4 px-3 py-2.5 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/20">

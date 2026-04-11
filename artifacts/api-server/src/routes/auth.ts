@@ -61,13 +61,16 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  const token = generateToken(user.id);
+  const isAdmin = user.role === "admin";
+  const token = generateToken(user.id, isAdmin);
   res.json({
     token,
+    isAdmin,
     user: {
       id: user.id,
       email: user.email,
       name: user.name,
+      role: user.role,
       createdAt: user.createdAt.toISOString(),
     },
   });
