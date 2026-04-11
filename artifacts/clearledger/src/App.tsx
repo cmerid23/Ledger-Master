@@ -2,10 +2,12 @@ import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import "@/lib/auth"; // Initialize auth token getter
 import { getToken, getBusinessId, setBusinessId } from "@/lib/auth";
+import { getAdminToken } from "@/lib/adminAuth";
 import { Layout } from "@/components/Layout";
+import { AdminLayout } from "@/components/AdminLayout";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/Login";
 import RegisterPage from "@/pages/Register";
@@ -18,6 +20,10 @@ import ReportsPage from "@/pages/Reports";
 import UploadPage from "@/pages/Upload";
 import SettingsPage from "@/pages/Settings";
 import SelectBusinessPage from "@/pages/SelectBusiness";
+import AdminLoginPage from "@/pages/admin/AdminLogin";
+import AdminDashboardPage from "@/pages/admin/AdminDashboard";
+import AdminUsersPage from "@/pages/admin/AdminUsers";
+import AdminBusinessesPage from "@/pages/admin/AdminBusinesses";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -87,11 +93,38 @@ function ProtectedApp() {
   );
 }
 
+function AdminApp() {
+  const adminToken = getAdminToken();
+  if (!adminToken) {
+    return <Redirect to="/admin/login" />;
+  }
+  return (
+    <AdminLayout>
+      <Switch>
+        <Route path="/admin/dashboard" component={AdminDashboardPage} />
+        <Route path="/admin/users" component={AdminUsersPage} />
+        <Route path="/admin/businesses" component={AdminBusinessesPage} />
+        <Route path="/admin">
+          <Redirect to="/admin/dashboard" />
+        </Route>
+        <Route component={NotFound} />
+      </Switch>
+    </AdminLayout>
+  );
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
+      <Route path="/admin/login" component={AdminLoginPage} />
+      <Route path="/admin/*">
+        <AdminApp />
+      </Route>
+      <Route path="/admin">
+        <AdminApp />
+      </Route>
       <Route path="/*">
         <ProtectedApp />
       </Route>

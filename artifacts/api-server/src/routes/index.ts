@@ -9,11 +9,13 @@ import reconciliationsRouter from "./reconciliations";
 import reportsRouter from "./reports";
 import dashboardRouter from "./dashboard";
 import uploadRouter from "./upload";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(adminRouter);
 router.use(businessesRouter);
 router.use(accountsRouter);
 router.use(transactionsRouter);
