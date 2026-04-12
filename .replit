@@ -32,12 +32,20 @@ localPort = 8082
 externalPort = 3001
 
 [[ports]]
+localPort = 8083
+externalPort = 4200
+
+[[ports]]
 localPort = 23158
 externalPort = 3000
 
 [[ports]]
 localPort = 23159
 externalPort = 3003
+
+[[ports]]
+localPort = 23160
+externalPort = 3002
 
 [nix]
 channel = "stable-25_05"
@@ -48,3 +56,4 @@ channel = "stable-25_05"
 VAPID_PUBLIC_KEY = "BOEegb8BYgCV8RSjZFVYWZeHpRJckED58ug5rmOxUtsQPiBj-BCVcBUOPictvZ7teu8e8u5ve4tv9DOSlhHcHOI"
 VAPID_PRIVATE_KEY = "yy8xw3fUSq24Wlan4nLmDZnmXyDpZgOCjDLjz2sUWT8"
 VAPID_EMAIL = "mailto:admin@clearledger.app"
+FROM_EMAIL = "invoices@yourdomain.com"
