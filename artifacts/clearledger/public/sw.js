@@ -1,4 +1,4 @@
-const CACHE = "clearledger-v1";
+const CACHE = "clearledger-v2";
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE = [
