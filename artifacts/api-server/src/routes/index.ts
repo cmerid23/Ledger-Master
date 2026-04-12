@@ -13,6 +13,7 @@ import adminRouter from "./admin";
 import demoRouter from "./demo";
 import storageRouter from "./storage";
 import receiptsRouter from "./receipts";
+import taxPackRouter from "./taxPack";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(dashboardRouter);
 router.use(uploadRouter);
 router.use(storageRouter);
 router.use(receiptsRouter);
+router.use(taxPackRouter);
 
 export default router;

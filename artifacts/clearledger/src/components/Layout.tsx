@@ -17,6 +17,7 @@ import {
   Check,
   Plus,
   Receipt,
+  Archive,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -42,6 +43,7 @@ const navItems = [
   { path: "/reports", label: "Reports", icon: BarChart3 },
   { path: "/upload", label: "Upload Statement", icon: Upload },
   { path: "/receipts", label: "Receipts", icon: Receipt },
+  { path: "/tax-pack", label: "Tax Pack", icon: Archive },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
