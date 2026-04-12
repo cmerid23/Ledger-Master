@@ -17,10 +17,13 @@ export function clearToken(): void {
 
 export function getBusinessId(): number | null {
   const v = localStorage.getItem(BUSINESS_KEY);
-  return v ? Number(v) : null;
+  if (!v) return null;
+  const n = Number(v);
+  return isNaN(n) || n <= 0 ? null : n;
 }
 
 export function setBusinessId(id: number): void {
+  if (!id || isNaN(id)) return;
   localStorage.setItem(BUSINESS_KEY, String(id));
 }
 

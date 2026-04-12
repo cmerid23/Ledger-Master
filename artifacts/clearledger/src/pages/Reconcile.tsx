@@ -8,23 +8,43 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatCurrency, formatDate, today } from "@/lib/utils";
-import { Plus, Play, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { Plus, Play, CheckCircle, Clock, AlertCircle, ShieldCheck, AlertTriangle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Props {
   businessId: number;
 }
 
+interface BankTx {
+  id: number;
+  date: string;
+  description: string;
+  amount: number;
+  type: string;
+}
+
+interface JournalEntry {
+  id: number;
+  date: string;
+  memo: string | null;
+}
+
+interface MatchedPair {
+  bankTransaction: BankTx;
+  journalEntry: JournalEntry;
+  confidence: "high" | "low";
+}
+
 interface ReconciliationResult {
-  matched: Array<{
-    bankTransaction: { id: number; date: string; description: string; amount: number; type: string };
-    journalEntry: { id: number; date: string; memo: string | null };
-  }>;
-  unmatchedBank: Array<{ id: number; date: string; description: string; amount: number; type: string }>;
-  unmatchedJournal: Array<{ id: number; date: string; memo: string | null }>;
+  matched: MatchedPair[];
+  needsReview: MatchedPair[];
+  unmatchedBank: BankTx[];
+  unmatchedJournal: JournalEntry[];
   summary: {
-    totalMatched: number;
-    totalUnmatchedBank: number;
-    totalUnmatchedJournal: number;
+    total: number;
+    autoReconciled: number;
+    reviewNeeded: number;
+    unmatched: number;
     openingBalance: number;
     closingBalance: number;
     difference: number;
@@ -54,6 +74,7 @@ export default function ReconcilePage({ businessId }: Props) {
 
   const [showForm, setShowForm] = useState(false);
   const [runningId, setRunningId] = useState<number | null>(null);
+  const [activeReconId, setActiveReconId] = useState<number | null>(null);
   const [result, setResult] = useState<ReconciliationResult | null>(null);
   const [form, setForm] = useState({
     bankAccountName: "",
@@ -72,7 +93,7 @@ export default function ReconcilePage({ businessId }: Props) {
     setError("");
     try {
       await createRecon.mutateAsync({
-        params: { businessId },
+        businessId,
         data: {
           bankAccountName: form.bankAccountName,
           statementDate: form.statementDate,
@@ -91,9 +112,10 @@ export default function ReconcilePage({ businessId }: Props) {
 
   async function handleRun(reconciliationId: number) {
     setRunningId(reconciliationId);
+    setActiveReconId(reconciliationId);
     setResult(null);
     try {
-      const res = await runRecon.mutateAsync({ params: { businessId, reconciliationId } });
+      const res = await runRecon.mutateAsync({ businessId, reconciliationId });
       setResult(res as unknown as ReconciliationResult);
       invalidate();
     } catch (err: unknown) {
@@ -104,8 +126,9 @@ export default function ReconcilePage({ businessId }: Props) {
   }
 
   async function handleComplete(reconciliationId: number) {
-    await completeRecon.mutateAsync({ params: { businessId, reconciliationId } });
+    await completeRecon.mutateAsync({ businessId, reconciliationId });
     setResult(null);
+    setActiveReconId(null);
     invalidate();
   }
 
@@ -163,81 +186,122 @@ export default function ReconcilePage({ businessId }: Props) {
         </form>
       )}
 
-      {/* Result panel */}
+      {/* Results panel */}
       {result && (
         <div className="bg-card border border-card-border rounded-xl overflow-hidden shadow-sm">
-          <div className="px-5 py-4 border-b border-border">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <h3 className="font-semibold text-foreground">Reconciliation Results</h3>
+            <span className="text-xs text-muted-foreground">{result.summary.total} bank transactions processed</span>
           </div>
-          <div className="p-5 space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-emerald-600">{result.summary.totalMatched}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Matched</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-amber-600">{result.summary.totalUnmatchedBank}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Unmatched bank txns</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-rose-600">{result.summary.totalUnmatchedJournal}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Unmatched journal entries</div>
+
+          {/* Summary stats — 4 tiles */}
+          <div className="grid grid-cols-4 divide-x divide-border border-b border-border">
+            <div className="px-5 py-4 text-center">
+              <div className="text-2xl font-bold text-emerald-600">{result.summary.autoReconciled}</div>
+              <div className="flex items-center justify-center gap-1 mt-0.5">
+                <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                <span className="text-xs text-muted-foreground">Auto-matched</span>
               </div>
             </div>
-
-            <div className="bg-muted/30 rounded-lg p-4 text-sm space-y-2">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Opening balance</span>
-                <span className="font-medium">{formatCurrency(result.summary.openingBalance)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Closing balance</span>
-                <span className="font-medium">{formatCurrency(result.summary.closingBalance)}</span>
-              </div>
-              <div className="flex justify-between border-t border-border pt-2">
-                <span className="text-muted-foreground">Difference</span>
-                <span className={`font-semibold ${Math.abs(result.summary.difference) < 0.01 ? "text-emerald-600" : "text-rose-600"}`}>
-                  {formatCurrency(result.summary.difference)}
-                </span>
+            <div className="px-5 py-4 text-center">
+              <div className="text-2xl font-bold text-amber-500">{result.summary.reviewNeeded}</div>
+              <div className="flex items-center justify-center gap-1 mt-0.5">
+                <AlertTriangle className="w-3 h-3 text-amber-500" />
+                <span className="text-xs text-muted-foreground">Needs review</span>
               </div>
             </div>
+            <div className="px-5 py-4 text-center">
+              <div className="text-2xl font-bold text-rose-500">{result.summary.unmatched}</div>
+              <div className="flex items-center justify-center gap-1 mt-0.5">
+                <AlertCircle className="w-3 h-3 text-rose-500" />
+                <span className="text-xs text-muted-foreground">Unmatched</span>
+              </div>
+            </div>
+            <div className="px-5 py-4 text-center">
+              <div className={cn("text-2xl font-bold", Math.abs(result.summary.difference) < 0.01 ? "text-emerald-600" : "text-rose-500")}>
+                {formatCurrency(result.summary.difference)}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">Difference</div>
+            </div>
+          </div>
 
-            {result.matched.length > 0 && (
+          <div className="p-5 space-y-5">
+            {/* Balance summary */}
+            <div className="bg-muted/30 rounded-lg p-4 text-sm flex gap-6">
               <div>
-                <h4 className="text-sm font-medium text-foreground mb-2">Matched pairs ({result.matched.length})</h4>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {result.matched.map((m, i) => (
-                    <div key={i} className="flex items-center gap-3 bg-emerald-50 rounded-lg px-3 py-2 text-xs">
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                      <span className="flex-1 truncate text-foreground">{m.bankTransaction.description}</span>
-                      <span className="text-muted-foreground">{formatDate(m.bankTransaction.date)}</span>
-                      <span className="font-medium text-foreground">{formatCurrency(m.bankTransaction.amount)}</span>
-                    </div>
-                  ))}
-                </div>
+                <span className="text-muted-foreground text-xs">Opening balance</span>
+                <div className="font-semibold">{formatCurrency(result.summary.openingBalance)}</div>
               </div>
+              <div className="text-muted-foreground self-end mb-0.5">→</div>
+              <div>
+                <span className="text-muted-foreground text-xs">Closing balance</span>
+                <div className="font-semibold">{formatCurrency(result.summary.closingBalance)}</div>
+              </div>
+              {Math.abs(result.summary.difference) < 0.01 && (
+                <div className="ml-auto flex items-center gap-1.5 text-emerald-600 text-sm font-medium">
+                  <CheckCircle className="w-4 h-4" />
+                  Balanced
+                </div>
+              )}
+            </div>
+
+            {/* High-confidence matches */}
+            {result.matched.length > 0 && (
+              <ResultSection
+                title="Auto-matched"
+                subtitle="High confidence — automatically reconciled"
+                count={result.matched.length}
+                badgeClass="bg-emerald-100 text-emerald-700"
+                icon={<ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />}
+                rowClass="bg-emerald-50/60"
+                items={result.matched.map((m) => ({
+                  description: m.bankTransaction.description,
+                  date: m.bankTransaction.date,
+                  amount: m.bankTransaction.amount,
+                  sub: m.journalEntry.memo ?? "—",
+                }))}
+              />
             )}
 
+            {/* Needs review */}
+            {result.needsReview.length > 0 && (
+              <ResultSection
+                title="Needs review"
+                subtitle="Low confidence — verify these matches manually"
+                count={result.needsReview.length}
+                badgeClass="bg-amber-100 text-amber-700"
+                icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
+                rowClass="bg-amber-50/60"
+                items={result.needsReview.map((m) => ({
+                  description: m.bankTransaction.description,
+                  date: m.bankTransaction.date,
+                  amount: m.bankTransaction.amount,
+                  sub: `Suggested journal: ${m.journalEntry.memo ?? "—"}`,
+                }))}
+              />
+            )}
+
+            {/* Unmatched bank */}
             {result.unmatchedBank.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium text-foreground mb-2">Unmatched bank transactions ({result.unmatchedBank.length})</h4>
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {result.unmatchedBank.map((tx) => (
-                    <div key={tx.id} className="flex items-center gap-3 bg-amber-50 rounded-lg px-3 py-2 text-xs">
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                      <span className="flex-1 truncate">{tx.description}</span>
-                      <span className="text-muted-foreground">{formatDate(tx.date)}</span>
-                      <span className="font-medium">{formatCurrency(tx.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ResultSection
+                title="Unmatched bank transactions"
+                subtitle="No journal entry found for these"
+                count={result.unmatchedBank.length}
+                badgeClass="bg-rose-100 text-rose-700"
+                icon={<AlertCircle className="w-3.5 h-3.5 text-rose-500" />}
+                rowClass="bg-rose-50/60"
+                items={result.unmatchedBank.map((tx) => ({
+                  description: tx.description,
+                  date: tx.date,
+                  amount: tx.amount,
+                }))}
+              />
             )}
           </div>
         </div>
       )}
 
-      {/* List */}
+      {/* Reconciliation list */}
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2].map((i) => <div key={i} className="h-20 bg-muted animate-pulse rounded-xl" />)}
@@ -277,7 +341,7 @@ export default function ReconcilePage({ businessId }: Props) {
                         <Play className="w-3 h-3" />
                         {runningId === rec.id ? "Running..." : "Run"}
                       </button>
-                      {result && (
+                      {result && activeReconId === rec.id && (
                         <button
                           onClick={() => handleComplete(rec.id)}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:opacity-90 transition-opacity"
@@ -289,6 +353,53 @@ export default function ReconcilePage({ businessId }: Props) {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shared section component for result buckets
+function ResultSection({
+  title, subtitle, count, badgeClass, icon, rowClass, items,
+}: {
+  title: string;
+  subtitle: string;
+  count: number;
+  badgeClass: string;
+  icon: React.ReactNode;
+  rowClass: string;
+  items: Array<{ description: string; date: string; amount: number; sub?: string }>;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  return (
+    <div>
+      <button
+        className="w-full flex items-center gap-2 mb-2 text-left"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", badgeClass)}>
+          {icon}
+          {count}
+        </span>
+        <span className="text-sm font-medium text-foreground">{title}</span>
+        <span className="text-xs text-muted-foreground">{subtitle}</span>
+        <span className="ml-auto text-xs text-muted-foreground">{expanded ? "hide" : "show"}</span>
+      </button>
+      {expanded && (
+        <div className="space-y-1 max-h-52 overflow-y-auto">
+          {items.map((item, i) => (
+            <div key={i} className={cn("flex items-start gap-3 rounded-lg px-3 py-2 text-xs", rowClass)}>
+              <div className="flex-1 min-w-0">
+                <div className="truncate font-medium text-foreground">{item.description}</div>
+                {item.sub && <div className="text-muted-foreground truncate">{item.sub}</div>}
+              </div>
+              <div className="flex-shrink-0 text-right">
+                <div className="text-muted-foreground">{formatDate(item.date)}</div>
+                <div className="font-medium text-foreground">{formatCurrency(item.amount)}</div>
               </div>
             </div>
           ))}

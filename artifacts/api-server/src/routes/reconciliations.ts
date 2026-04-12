@@ -22,21 +22,29 @@ async function verifyBusinessOwnership(businessId: number, userId: number): Prom
   return !!business;
 }
 
-function stringSimilarity(a: string, b: string): number {
-  const s1 = a.toLowerCase().trim();
-  const s2 = b.toLowerCase().trim();
-  if (s1 === s2) return 1;
-
-  const words1 = new Set(s1.split(/\s+/));
-  const words2 = new Set(s2.split(/\s+/));
-  const intersection = new Set([...words1].filter((x) => words2.has(x)));
-  const union = new Set([...words1, ...words2]);
-  return union.size === 0 ? 0 : intersection.size / union.size;
+// Character-based similarity (ported from reconcileEngine.js)
+function similarity(a: string, b: string): number {
+  const s1 = a.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const s2 = b.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!s1 || !s2) return 0;
+  let matches = 0;
+  for (let i = 0; i < Math.min(s1.length, s2.length); i++) {
+    if (s1[i] === s2[i]) matches++;
+  }
+  return matches / Math.max(s1.length, s2.length);
 }
 
 function dateDiffDays(d1: string, d2: string): number {
   const diff = Math.abs(new Date(d1).getTime() - new Date(d2).getTime());
   return diff / (1000 * 60 * 60 * 24);
+}
+
+// Weighted score: amount 50%, date 30%, description 20%
+function matchScore(bankAmount: number, bankDate: string, bankDesc: string, journalAmount: number, journalDate: string, journalMemo: string): number {
+  const amountMatch = Math.abs(bankAmount - journalAmount) < 0.01 ? 0.5 : 0;
+  const dateMatch = dateDiffDays(bankDate, journalDate) <= 3 ? 0.3 : 0;
+  const descScore = similarity(bankDesc, journalMemo) * 0.2;
+  return amountMatch + dateMatch + descScore;
 }
 
 router.get("/businesses/:businessId/reconciliations", async (req: AuthRequest, res): Promise<void> => {
@@ -188,63 +196,63 @@ router.post("/businesses/:businessId/reconciliations/:reconciliationId/run", asy
     })
   );
 
-  // Reconciliation algorithm
-  const matched: Array<{ bankTransaction: object; journalEntry: object }> = [];
+  // ── Reconciliation engine (ported from reconcileEngine.js) ──
+  type MatchedPair = { bankTransaction: object; journalEntry: object; confidence: "high" | "low" };
+  const matched: MatchedPair[] = [];
+  const needsReview: MatchedPair[] = [];
   const matchedBankIds = new Set<number>();
-  const matchedJournalIds = new Set<number>();
+  const remainingJournal = [...journalWithLines];
 
   for (const bankTx of bankTxns) {
     const bankAmount = Number(bankTx.amount);
-    for (const journalEntry of journalWithLines) {
-      if (matchedJournalIds.has(journalEntry.id)) continue;
+    let bestScore = 0;
+    let bestMatch: (typeof journalWithLines)[number] | null = null;
 
+    for (const journalEntry of remainingJournal) {
       const journalTotal = journalEntry.lines.reduce((sum, l) => sum + l.debitAmount, 0);
-      const amountMatch = Math.abs(bankAmount - journalTotal) < 0.01;
-      const dateDiff = dateDiffDays(bankTx.date, journalEntry.date);
-      const descSimilarity = stringSimilarity(bankTx.description, journalEntry.memo || "");
-
-      if (amountMatch && dateDiff <= 3 && descSimilarity > 0.3) {
-        matched.push({
-          bankTransaction: {
-            ...bankTx,
-            amount: bankAmount,
-            createdAt: bankTx.createdAt.toISOString(),
-          },
-          journalEntry,
-        });
-        matchedBankIds.add(bankTx.id);
-        matchedJournalIds.add(journalEntry.id);
-        break;
-      }
+      const score = matchScore(bankAmount, bankTx.date, bankTx.description, journalTotal, journalEntry.date, journalEntry.memo ?? "");
+      if (score > bestScore) { bestScore = score; bestMatch = journalEntry; }
     }
+
+    const serializedBank = { ...bankTx, amount: bankAmount, createdAt: bankTx.createdAt.toISOString() };
+
+    if (bestScore >= 0.8 && bestMatch) {
+      matched.push({ bankTransaction: serializedBank, journalEntry: bestMatch, confidence: "high" });
+      matchedBankIds.add(bankTx.id);
+      remainingJournal.splice(remainingJournal.indexOf(bestMatch), 1);
+    } else if (bestScore >= 0.5 && bestMatch) {
+      needsReview.push({ bankTransaction: serializedBank, journalEntry: bestMatch, confidence: "low" });
+      matchedBankIds.add(bankTx.id);
+      remainingJournal.splice(remainingJournal.indexOf(bestMatch), 1);
+    }
+    // else: stays in unmatchedBank (not added to matchedBankIds)
   }
 
-  // Auto-mark matched bank transactions as reconciled
-  for (const id of matchedBankIds) {
-    await db.update(transactionsTable).set({ reconciled: true }).where(eq(transactionsTable.id, id));
+  // Auto-mark only HIGH-confidence matches as reconciled
+  for (const pair of matched) {
+    const bt = pair.bankTransaction as { id: number };
+    await db.update(transactionsTable).set({ reconciled: true }).where(eq(transactionsTable.id, bt.id));
   }
 
   const unmatchedBank = bankTxns
     .filter((tx) => !matchedBankIds.has(tx.id))
-    .map((tx) => ({
-      ...tx,
-      amount: Number(tx.amount),
-      createdAt: tx.createdAt.toISOString(),
-    }));
+    .map((tx) => ({ ...tx, amount: Number(tx.amount), createdAt: tx.createdAt.toISOString() }));
 
-  const unmatchedJournal = journalWithLines.filter((e) => !matchedJournalIds.has(e.id));
+  const unmatchedJournal = remainingJournal;
 
   const openingBal = Number(reconciliation.openingBalance);
   const closingBal = Number(reconciliation.closingBalance);
 
   res.json({
     matched,
+    needsReview,
     unmatchedBank,
     unmatchedJournal,
     summary: {
-      totalMatched: matched.length,
-      totalUnmatchedBank: unmatchedBank.length,
-      totalUnmatchedJournal: unmatchedJournal.length,
+      total: bankTxns.length,
+      autoReconciled: matched.length,
+      reviewNeeded: needsReview.length,
+      unmatched: unmatchedBank.length,
       openingBalance: openingBal,
       closingBalance: closingBal,
       difference: closingBal - openingBal,
