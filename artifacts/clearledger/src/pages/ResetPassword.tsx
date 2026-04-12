@@ -1,23 +1,17 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation } from "wouter";
+import { useState } from "react";
+import { Link, useLocation, useParams } from "wouter";
 import { BarChart3, Eye, EyeOff, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function ResetPasswordPage() {
   const [, navigate] = useLocation();
-  const [token, setToken] = useState("");
+  const params = useParams<{ token: string }>();
+  const token = params.token ?? "";
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const t = params.get("token") ?? "";
-    if (!t) setError("Invalid reset link. Please request a new one.");
-    setToken(t);
-  }, []);
+  const [error, setError] = useState(!token ? "Invalid reset link. Please request a new one." : "");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,7 +23,7 @@ export default function ResetPasswordPage() {
       const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ token, newPassword: password }),
       });
       const d = await res.json().catch(() => ({})) as { error?: string; message?: string };
       if (!res.ok) throw new Error(d.error ?? "Reset failed");

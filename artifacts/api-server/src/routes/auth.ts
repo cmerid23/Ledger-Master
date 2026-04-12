@@ -105,22 +105,22 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
 
     await db.insert(passwordResetTokensTable).values({ userId: user.id, token, expiresAt });
 
-    const origin = (req.headers["origin"] as string) || `https://${req.headers["host"]}`;
-    const resetLink = `${origin}/reset-password?token=${token}`;
+    const origin = process.env["CLIENT_URL"] ?? ((req.headers["origin"] as string) || `https://${req.headers["host"]}`);
+    const resetLink = `${origin}/reset-password/${token}`;
 
     try {
       await sendPasswordResetEmail({ to: email, resetLink });
     } catch { /* log but don't reveal */ }
   }
 
-  res.json({ message: "If an account with that email exists, a reset link has been sent." });
+  res.json({ message: "If that email exists, a reset link has been sent." });
 });
 
 // ── POST /api/auth/reset-password ─────────────────────────────────────────────
 router.post("/auth/reset-password", async (req, res): Promise<void> => {
-  const { token, password } = req.body as { token?: string; password?: string };
-  if (!token || !password) { res.status(400).json({ error: "Token and password required" }); return; }
-  if (password.length < 8) { res.status(400).json({ error: "Password must be at least 8 characters" }); return; }
+  const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+  if (!token || !newPassword) { res.status(400).json({ error: "Token and newPassword required" }); return; }
+  if (newPassword.length < 8) { res.status(400).json({ error: "Password must be at least 8 characters" }); return; }
 
   const [record] = await db
     .select()
@@ -132,14 +132,14 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
     .limit(1);
 
   if (!record || record.usedAt) {
-    res.status(400).json({ error: "This reset link is invalid or has expired." }); return;
+    res.status(400).json({ error: "Invalid or expired reset link" }); return;
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordHash = await bcrypt.hash(newPassword, 10);
   await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, record.userId));
   await db.update(passwordResetTokensTable).set({ usedAt: new Date() }).where(eq(passwordResetTokensTable.id, record.id));
 
-  res.json({ message: "Password updated successfully. You can now log in." });
+  res.json({ message: "Password reset successfully" });
 });
 
 export default router;
