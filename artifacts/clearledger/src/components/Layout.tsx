@@ -59,6 +59,7 @@ const navItems = [
   { path: "/upload", label: "Upload Statement", icon: Upload },
   { path: "/receipts", label: "Receipts", icon: Receipt },
   { path: "/tax-pack", label: "Tax Pack", icon: Archive },
+  { path: "/billing", label: "Billing", icon: CreditCard },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

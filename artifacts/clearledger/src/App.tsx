@@ -36,6 +36,7 @@ import VendorsPage from "@/pages/Vendors";
 import BillsPage from "@/pages/Bills";
 import FleetPage from "@/pages/Fleet";
 import InstallPage from "@/pages/Install";
+import BillingPage from "@/pages/Billing";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { UpdateBanner } from "@/components/UpdateBanner";
 
@@ -124,6 +125,9 @@ function ProtectedApp() {
         </Route>
         <Route path="/fleet">
           <FleetPage businessId={businessId} />
+        </Route>
+        <Route path="/billing">
+          <BillingPage />
         </Route>
         <Route path="/">
           <Redirect to="/dashboard" />
