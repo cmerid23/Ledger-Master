@@ -14,7 +14,10 @@ export const transactionsTable = pgTable("transactions", {
   accountId: integer("account_id").references(() => accountsTable.id, { onDelete: "set null" }),
   source: text("source").notNull().default("manual"), // manual, plaid, upload
   reconciled: boolean("reconciled").notNull().default(false),
+  reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
   plaidTransactionId: text("plaid_transaction_id"),
+  needsReceipt: boolean("needs_receipt").notNull().default(false),
+  receiptNotRequired: boolean("receipt_not_required").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -27,7 +27,7 @@ ClearLedger is a full-stack, multi-business accounting web application built as 
 
 ### Packages
 
-- `lib/db` — Drizzle ORM schema (PostgreSQL), tables: users, businesses, accounts, transactions, journal_entries, journal_lines, reconciliations, receipts
+- `lib/db` — Drizzle ORM schema (PostgreSQL), tables: users, businesses, accounts, transactions, journal_entries, journal_lines, reconciliations, reconciliation_matches, receipts
 - `lib/api-spec` — OpenAPI specification (`openapi.yaml`)
 - `lib/api-client-react` — Orval-generated React Query hooks + Zod schemas
 
