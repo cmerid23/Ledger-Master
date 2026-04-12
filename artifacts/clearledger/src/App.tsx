@@ -25,6 +25,7 @@ import SelectBusinessPage from "@/pages/SelectBusiness";
 import AdminDashboardPage from "@/pages/admin/AdminDashboard";
 import AdminUsersPage from "@/pages/admin/AdminUsers";
 import AdminBusinessesPage from "@/pages/admin/AdminBusinesses";
+import LandingPage from "@/pages/Landing";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -123,6 +124,7 @@ function AdminApp() {
 function Router() {
   return (
     <Switch>
+      <Route path="/" component={LandingPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
       <Route path="/admin/login">
