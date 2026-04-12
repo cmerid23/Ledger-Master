@@ -7,6 +7,9 @@ ClearLedger is a full-stack, multi-business accounting web application built as 
 ## Features
 
 - **Public Landing Page** — premium marketing homepage at `/` with hero, features grid, pricing tiers, testimonials, about, CTA banner, and footer; dark navy + emerald green design; Framer Motion scroll animations; demo modal; mobile hamburger nav
+- **Customers (CRM)** — customer directory with contact info (email, phone, address, city/state/zip), payment terms, notes; add/edit/delete with search; `customers` DB table
+- **Invoices** — full invoice lifecycle (draft → sent → viewed → partial → paid → overdue → cancelled); line item editor with qty/unit/rate/amount auto-calc; tax rate %, discount $, subtotal/tax/total; customer linking; payment recording (amount, date, method, reference); convert quote → invoice; summary cards (outstanding, overdue, paid, drafts); `invoices`, `invoice_line_items`, `invoice_payments` DB tables
+- **Quotes** — quote workflow (draft → sent → accepted → declined → expired → converted); line item editor identical to invoices; tax rate; one-click convert to invoice; `→ INV` badge on converted quotes; `quotes`, `quote_line_items` DB tables
 - **Multi-business support** — create and switch between businesses
 - **Chart of Accounts (COA)** — hierarchical accounts with type (asset/liability/equity/income/expense), auto-seeded with 27 standard accounts on business creation
 - **Transactions** — debit/credit transactions, bulk categorization, pagination, search/filter

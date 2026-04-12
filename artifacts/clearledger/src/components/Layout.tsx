@@ -5,6 +5,7 @@ import {
   BookOpen,
   CreditCard,
   FileText,
+  ScrollText,
   BarChart3,
   Upload,
   Settings,
@@ -18,6 +19,8 @@ import {
   Plus,
   Receipt,
   Archive,
+  Users,
+  ClipboardList,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -36,9 +39,12 @@ interface LayoutProps {
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/customers", label: "Customers", icon: Users },
+  { path: "/invoices", label: "Invoices", icon: FileText },
+  { path: "/quotes", label: "Quotes", icon: ClipboardList },
   { path: "/accounts", label: "Chart of Accounts", icon: BookOpen },
   { path: "/transactions", label: "Transactions", icon: CreditCard },
-  { path: "/journal", label: "Journal Entries", icon: FileText },
+  { path: "/journal", label: "Journal Entries", icon: ScrollText },
   { path: "/reconcile", label: "Reconciliation", icon: CheckCircle },
   { path: "/reports", label: "Reports", icon: BarChart3 },
   { path: "/upload", label: "Upload Statement", icon: Upload },

@@ -26,6 +26,9 @@ import AdminDashboardPage from "@/pages/admin/AdminDashboard";
 import AdminUsersPage from "@/pages/admin/AdminUsers";
 import AdminBusinessesPage from "@/pages/admin/AdminBusinesses";
 import LandingPage from "@/pages/Landing";
+import CustomersPage from "@/pages/Customers";
+import InvoicesPage from "@/pages/Invoices";
+import QuotesPage from "@/pages/Quotes";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,6 +94,15 @@ function ProtectedApp() {
         </Route>
         <Route path="/settings">
           <SettingsPage businessId={businessId} onBusinessChange={handleBusinessChange} />
+        </Route>
+        <Route path="/customers">
+          <CustomersPage businessId={businessId} />
+        </Route>
+        <Route path="/invoices">
+          <InvoicesPage businessId={businessId} />
+        </Route>
+        <Route path="/quotes">
+          <QuotesPage businessId={businessId} />
         </Route>
         <Route path="/">
           <Redirect to="/dashboard" />

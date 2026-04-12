@@ -6,3 +6,6 @@ export * from "./journalEntries";
 export * from "./reconciliations";
 export * from "./reconciliationMatches";
 export * from "./receipts";
+export * from "./customers";
+export * from "./invoices";
+export * from "./quotes";

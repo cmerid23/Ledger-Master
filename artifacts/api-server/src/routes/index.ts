@@ -14,6 +14,9 @@ import demoRouter from "./demo";
 import storageRouter from "./storage";
 import receiptsRouter from "./receipts";
 import taxPackRouter from "./taxPack";
+import customersRouter from "./customers";
+import invoicesRouter from "./invoices";
+import quotesRouter from "./quotes";
 
 const router: IRouter = Router();
 
@@ -32,5 +35,8 @@ router.use(uploadRouter);
 router.use(storageRouter);
 router.use(receiptsRouter);
 router.use(taxPackRouter);
+router.use(customersRouter);
+router.use(invoicesRouter);
+router.use(quotesRouter);
 
 export default router;
