@@ -148,14 +148,22 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={login.isPending || demoLoading}
-              className="w-full py-2.5 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
-            >
-              {login.isPending ? "Signing in..." : "Sign in"}
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                type="submit"
+                disabled={login.isPending || demoLoading}
+                className="flex-1 py-2.5 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {login.isPending ? "Signing in..." : "Sign in"}
+              </button>
+            </div>
           </form>
+
+          <div className="mt-4 text-center">
+            <Link href="/forgot-password" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+              Forgot your password?
+            </Link>
+          </div>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{" "}

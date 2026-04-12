@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ClipboardList, Plus, Pencil, Trash2, Search, X, Loader2, ArrowLeft,
-  ArrowRightLeft, ChevronDown, Send, CheckCircle2
+  ArrowRightLeft, ChevronDown, Send, CheckCircle2, Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,7 @@ export default function QuotesPage({ businessId }: Props) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [statusDropOpen, setStatusDropOpen] = useState<number | null>(null);
   const [sendingId, setSendingId] = useState<number | null>(null);
+  const [pdfLoading, setPdfLoading] = useState<number | null>(null);
   const [acceptingId, setAcceptingId] = useState<number | null>(null);
   const [convertingId, setConvertingId] = useState<number | null>(null);
 
@@ -170,6 +171,23 @@ export default function QuotesPage({ businessId }: Props) {
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  async function handleDownloadPdf(q: Quote) {
+    setPdfLoading(q.id);
+    try {
+      const res = await authFetch(`/api/quotes/${q.id}/pdf`);
+      if (!res.ok) throw new Error("Failed to generate PDF");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `quote-${q.quoteNumber}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Error", description: "Could not download PDF", variant: "destructive" });
+    } finally {
+      setPdfLoading(null);
+    }
+  }
 
   async function handleSend(q: Quote) {
     setSendingId(q.id);
@@ -364,9 +382,14 @@ export default function QuotesPage({ businessId }: Props) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end flex-wrap">
+                        {/* PDF */}
+                        <button title="Download PDF" onClick={() => handleDownloadPdf(q)}
+                          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                          {pdfLoading === q.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                        </button>
                         {/* Send */}
                         {q.status === "draft" && (
-                          <button title="Send quote" onClick={() => handleSend(q)}
+                          <button title="Send quote by email" onClick={() => handleSend(q)}
                             className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-blue-600">
                             {sendingId === q.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                           </button>

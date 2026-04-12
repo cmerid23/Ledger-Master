@@ -4,7 +4,8 @@ import { eq, and, desc } from "drizzle-orm";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 import { z } from "zod";
 import PDFDocument from "pdfkit";
-import nodemailer from "nodemailer";
+import { sendInvoiceEmail as sendInvoiceEmailResend, sendOverdueReminderEmail } from "../lib/email";
+import { generateInvoicePdfBuffer } from "../lib/pdfHelpers";
 
 const router: IRouter = Router();
 router.use(authMiddleware);
@@ -46,20 +47,6 @@ function computeTotals(lineItems: { amount: string }[], taxRate: string, discoun
   return { subtotal: subtotal.toFixed(2), taxAmount: tax.toFixed(2), total: total.toFixed(2) };
 }
 
-async function sendInvoiceEmail(to: string, invoice: { invoiceNumber: string; total: string; dueDate?: string | null; businessName: string }) {
-  const host = process.env["SMTP_HOST"];
-  const user = process.env["SMTP_USER"];
-  const pass = process.env["SMTP_PASS"];
-  if (!host || !user || !pass) return false;
-  const transporter = nodemailer.createTransport({ host, port: 587, auth: { user, pass } });
-  await transporter.sendMail({
-    from: user,
-    to,
-    subject: `Invoice ${invoice.invoiceNumber} from ${invoice.businessName}`,
-    text: `Dear customer,\n\nPlease find attached invoice ${invoice.invoiceNumber} for $${invoice.total}${invoice.dueDate ? `, due ${invoice.dueDate}` : ""}.\n\nThank you,\n${invoice.businessName}`,
-  });
-  return true;
-}
 
 const LineItemInput = z.object({
   description: z.string().min(1),
@@ -205,13 +192,17 @@ router.post("/invoices/:id/send", async (req: AuthRequest, res): Promise<void> =
   const toEmail = (req.body as { email?: string }).email ?? invoice.customerEmail;
   if (toEmail) {
     try {
-      emailSent = await sendInvoiceEmail(toEmail, {
+      const pdfBuffer = await generateInvoicePdfBuffer(invoice);
+      emailSent = await sendInvoiceEmailResend({
+        to: toEmail,
+        customerName: invoice.customerName ?? "Customer",
+        businessName: invoice.businessName ?? "Your Business",
         invoiceNumber: invoice.invoiceNumber,
-        total: invoice.total,
         dueDate: invoice.dueDate,
-        businessName: invoice.businessName,
+        total: invoice.total ?? "0",
+        pdfBuffer,
       });
-    } catch { /* email optional */ }
+    } catch { /* email optional — mark sent regardless */ }
   }
 
   const [updated] = await db.update(invoicesTable)
@@ -219,6 +210,41 @@ router.post("/invoices/:id/send", async (req: AuthRequest, res): Promise<void> =
     .where(eq(invoicesTable.id, id))
     .returning();
   res.json({ invoice: updated, emailSent, emailTo: toEmail ?? null });
+});
+
+// ─── POST /api/invoices/:id/remind ────────────────────────────────────────────
+router.post("/invoices/:id/remind", async (req: AuthRequest, res): Promise<void> => {
+  const id = Number(req.params["id"]);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const invoice = await getInvoiceWithItems(id, req.userId!);
+  if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+
+  if (!["sent", "viewed", "partial", "overdue"].includes(invoice.status ?? "")) {
+    res.status(400).json({ error: "Reminder can only be sent for sent/overdue invoices" }); return;
+  }
+
+  const toEmail = (req.body as { email?: string }).email ?? invoice.customerEmail;
+  if (!toEmail) { res.status(400).json({ error: "No customer email on record" }); return; }
+
+  const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
+  const daysOverdue = dueDate ? Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86_400_000)) : 0;
+
+  try {
+    const pdfBuffer = await generateInvoicePdfBuffer(invoice);
+    await sendOverdueReminderEmail({
+      to: toEmail,
+      customerName: invoice.customerName ?? "Customer",
+      businessName: invoice.businessName ?? "Your Business",
+      invoiceNumber: invoice.invoiceNumber,
+      daysOverdue,
+      amountDue: invoice.balanceDue ?? invoice.total ?? "0",
+      pdfBuffer,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send reminder email" }); return;
+  }
+
+  res.json({ success: true, emailTo: toEmail, daysOverdue });
 });
 
 // ─── POST /api/invoices/:id/payments ─────────────────────────────────────────

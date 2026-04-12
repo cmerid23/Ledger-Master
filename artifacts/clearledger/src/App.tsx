@@ -26,6 +26,8 @@ import AdminDashboardPage from "@/pages/admin/AdminDashboard";
 import AdminUsersPage from "@/pages/admin/AdminUsers";
 import AdminBusinessesPage from "@/pages/admin/AdminBusinesses";
 import LandingPage from "@/pages/Landing";
+import ForgotPasswordPage from "@/pages/ForgotPassword";
+import ResetPasswordPage from "@/pages/ResetPassword";
 import CustomersPage from "@/pages/Customers";
 import InvoicesPage from "@/pages/Invoices";
 import QuotesPage from "@/pages/Quotes";
@@ -155,6 +157,8 @@ function Router() {
       <Route path="/" component={LandingPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/admin/login">
         <Redirect to="/login" />
       </Route>

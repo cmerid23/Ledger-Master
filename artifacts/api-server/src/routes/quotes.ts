@@ -3,7 +3,8 @@ import { db, quotesTable, quoteLineItemsTable, invoicesTable, invoiceLineItemsTa
 import { eq, and, desc } from "drizzle-orm";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 import { z } from "zod";
-import nodemailer from "nodemailer";
+import { sendQuoteEmail as sendQuoteEmailResend } from "../lib/email";
+import { generateQuotePdfBuffer } from "../lib/pdfHelpers";
 
 const router: IRouter = Router();
 router.use(authMiddleware);
@@ -41,20 +42,6 @@ function computeTotals(lineItems: { amount: string }[], taxRate: string) {
   return { subtotal: subtotal.toFixed(2), taxAmount: tax.toFixed(2), total: (subtotal + tax).toFixed(2) };
 }
 
-async function sendQuoteEmail(to: string, quote: { quoteNumber: string; total: string; expiryDate?: string | null; businessName: string }) {
-  const host = process.env["SMTP_HOST"];
-  const user = process.env["SMTP_USER"];
-  const pass = process.env["SMTP_PASS"];
-  if (!host || !user || !pass) return false;
-  const transporter = nodemailer.createTransport({ host, port: 587, auth: { user, pass } });
-  await transporter.sendMail({
-    from: user,
-    to,
-    subject: `Quote ${quote.quoteNumber} from ${quote.businessName}`,
-    text: `Dear customer,\n\nPlease review quote ${quote.quoteNumber} for $${quote.total}${quote.expiryDate ? `, valid until ${quote.expiryDate}` : ""}.\n\nThank you,\n${quote.businessName}`,
-  });
-  return true;
-}
 
 const LineItemInput = z.object({
   description: z.string().min(1),
@@ -156,6 +143,19 @@ router.patch("/quotes/:id", async (req: AuthRequest, res): Promise<void> => {
   res.json(quote);
 });
 
+// ─── GET /api/quotes/:id/pdf ──────────────────────────────────────────────────
+router.get("/quotes/:id/pdf", async (req: AuthRequest, res): Promise<void> => {
+  const id = Number(req.params["id"]);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const quote = await getQuoteWithItems(id, req.userId!);
+  if (!quote) { res.status(404).json({ error: "Quote not found" }); return; }
+
+  const buf = await generateQuotePdfBuffer(quote);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="quote-${quote.quoteNumber}.pdf"`);
+  res.send(buf);
+});
+
 // ─── POST /api/quotes/:id/send ────────────────────────────────────────────────
 router.post("/quotes/:id/send", async (req: AuthRequest, res): Promise<void> => {
   const id = Number(req.params["id"]);
@@ -167,13 +167,17 @@ router.post("/quotes/:id/send", async (req: AuthRequest, res): Promise<void> => 
   const toEmail = (req.body as { email?: string }).email ?? quote.customerEmail;
   if (toEmail) {
     try {
-      emailSent = await sendQuoteEmail(toEmail, {
+      const pdfBuffer = await generateQuotePdfBuffer(quote);
+      emailSent = await sendQuoteEmailResend({
+        to: toEmail,
+        customerName: quote.customerName ?? "Customer",
+        businessName: quote.businessName ?? "Your Business",
         quoteNumber: quote.quoteNumber,
-        total: quote.total,
         expiryDate: quote.expiryDate,
-        businessName: quote.businessName,
+        total: quote.total ?? "0",
+        pdfBuffer,
       });
-    } catch { /* email optional */ }
+    } catch { /* email optional — mark sent regardless */ }
   }
 
   const [updated] = await db.update(quotesTable).set({ status: "sent" }).where(eq(quotesTable.id, id)).returning();

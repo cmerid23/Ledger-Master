@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText, Plus, Pencil, Trash2, Search, X, Loader2, ArrowLeft,
-  DollarSign, ChevronDown, Download, Send, Copy
+  DollarSign, ChevronDown, Download, Send, Copy, BellRing
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,6 +76,7 @@ export default function InvoicesPage({ businessId }: Props) {
   const [statusDropOpen, setStatusDropOpen] = useState<number | null>(null);
   const [pdfLoading, setPdfLoading] = useState<number | null>(null);
   const [sendingId, setSendingId] = useState<number | null>(null);
+  const [remindingId, setRemindingId] = useState<number | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
 
   const [form, setForm] = useState({
@@ -243,6 +244,20 @@ export default function InvoicesPage({ businessId }: Props) {
       toast({ title: "PDF Error", description: (e as Error).message, variant: "destructive" });
     } finally {
       setPdfLoading(null);
+    }
+  }
+
+  async function handleRemind(inv: Invoice) {
+    setRemindingId(inv.id);
+    try {
+      const res = await authFetch(`/api/invoices/${inv.id}/remind`, { method: "POST" });
+      const data = await res.json() as { emailTo?: string; daysOverdue?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      toast({ title: "Reminder sent", description: `Overdue reminder emailed to ${data.emailTo}` });
+    } catch (err) {
+      toast({ title: "Error", description: (err as Error).message || "Failed to send reminder", variant: "destructive" });
+    } finally {
+      setRemindingId(null);
     }
   }
 
@@ -472,9 +487,16 @@ export default function InvoicesPage({ businessId }: Props) {
                         </button>
                         {/* Send */}
                         {inv.status === "draft" && (
-                          <button title="Mark as sent" onClick={() => handleSend(inv)}
+                          <button title="Send invoice by email" onClick={() => handleSend(inv)}
                             className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-blue-600">
                             {sendingId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        {/* Remind */}
+                        {["sent", "viewed", "partial", "overdue"].includes(inv.status) && (
+                          <button title="Send overdue reminder" onClick={() => handleRemind(inv)}
+                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-orange-500">
+                            {remindingId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellRing className="w-3.5 h-3.5" />}
                           </button>
                         )}
                         {/* Duplicate */}
