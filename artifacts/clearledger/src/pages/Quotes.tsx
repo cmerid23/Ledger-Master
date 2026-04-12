@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ClipboardList, Plus, Pencil, Trash2, Search, X, Loader2, ArrowLeft,
-  ArrowRightLeft, ChevronDown
+  ArrowRightLeft, ChevronDown, Send, CheckCircle2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,16 +45,12 @@ const STATUSES: Record<string, { label: string; color: string }> = {
 function authFetch(url: string, opts: RequestInit = {}) {
   return fetch(url, {
     ...opts,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...opts.headers },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...(opts.headers as Record<string, string> ?? {}) },
   });
 }
 
 function today() { return new Date().toISOString().split("T")[0]!; }
-function addDays(d: string, n: number) {
-  const dt = new Date(d); dt.setDate(dt.getDate() + n);
-  return dt.toISOString().split("T")[0]!;
-}
-
+function addDays(d: string, n: number) { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]!; }
 const EMPTY_LINE: LineItem = { description: "", quantity: "1", unit: "", rate: "0", amount: "0", sortOrder: 0 };
 type View = "list" | "editor";
 
@@ -66,7 +62,9 @@ export default function QuotesPage({ businessId }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [statusDropOpen, setStatusDropOpen] = useState<number | null>(null);
-  const [converting, setConverting] = useState<number | null>(null);
+  const [sendingId, setSendingId] = useState<number | null>(null);
+  const [acceptingId, setAcceptingId] = useState<number | null>(null);
+  const [convertingId, setConvertingId] = useState<number | null>(null);
 
   const [form, setForm] = useState({
     quoteNumber: "", customerId: "" as string | number,
@@ -78,7 +76,7 @@ export default function QuotesPage({ businessId }: Props) {
   const { data: quotes = [], isLoading } = useQuery<Quote[]>({
     queryKey: ["quotes", businessId],
     queryFn: async () => {
-      const res = await authFetch(`/api/businesses/${businessId}/quotes`);
+      const res = await authFetch(`/api/quotes?businessId=${businessId}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -87,7 +85,7 @@ export default function QuotesPage({ businessId }: Props) {
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["customers", businessId],
     queryFn: async () => {
-      const res = await authFetch(`/api/businesses/${businessId}/customers`);
+      const res = await authFetch(`/api/customers?businessId=${businessId}`);
       if (!res.ok) return [];
       return res.json();
     },
@@ -103,15 +101,7 @@ export default function QuotesPage({ businessId }: Props) {
 
   function openEdit(q: Quote) {
     setEditingId(q.id);
-    setForm({
-      quoteNumber: q.quoteNumber,
-      customerId: q.customerId ?? "",
-      issueDate: q.issueDate,
-      expiryDate: q.expiryDate ?? "",
-      taxRate: q.taxRate,
-      notes: q.notes ?? "",
-      terms: q.terms ?? "",
-    });
+    setForm({ quoteNumber: q.quoteNumber, customerId: q.customerId ?? "", issueDate: q.issueDate, expiryDate: q.expiryDate ?? "", taxRate: q.taxRate, notes: q.notes ?? "", terms: q.terms ?? "" });
     setLineItems(q.lineItems && q.lineItems.length > 0
       ? q.lineItems.map(li => ({ ...li, quantity: String(li.quantity), rate: String(li.rate), amount: String(li.amount), unit: li.unit ?? "" }))
       : [{ ...EMPTY_LINE }]
@@ -124,14 +114,11 @@ export default function QuotesPage({ businessId }: Props) {
       const next = [...prev];
       next[idx] = { ...next[idx]!, [field]: value };
       if (field === "quantity" || field === "rate") {
-        const q = parseFloat(next[idx]!.quantity) || 0;
-        const r = parseFloat(next[idx]!.rate) || 0;
-        next[idx]!.amount = (q * r).toFixed(2);
+        next[idx]!.amount = ((parseFloat(next[idx]!.quantity) || 0) * (parseFloat(next[idx]!.rate) || 0)).toFixed(2);
       }
       return next;
     });
   }
-
   function addLine() { setLineItems((p) => [...p, { ...EMPTY_LINE, sortOrder: p.length }]); }
   function removeLine(i: number) { setLineItems((p) => p.filter((_, j) => j !== i)); }
 
@@ -141,12 +128,13 @@ export default function QuotesPage({ businessId }: Props) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const url = editingId
-        ? `/api/businesses/${businessId}/quotes/${editingId}`
-        : `/api/businesses/${businessId}/quotes`;
-      const payload = { ...form, customerId: form.customerId ? Number(form.customerId) : null, lineItems };
-      const res = await authFetch(url, { method: editingId ? "PUT" : "POST", body: JSON.stringify(payload) });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed to save"); }
+      let url: string;
+      let method: string;
+      if (editingId) { url = `/api/quotes/${editingId}`; method = "PATCH"; }
+      else { url = `/api/quotes`; method = "POST"; }
+      const payload = { ...form, businessId, customerId: form.customerId ? Number(form.customerId) : null, lineItems };
+      const res = await authFetch(url, { method, body: JSON.stringify(payload) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as { error?: string }).error || "Failed"); }
       return res.json();
     },
     onSuccess: () => {
@@ -159,7 +147,7 @@ export default function QuotesPage({ businessId }: Props) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await authFetch(`/api/businesses/${businessId}/quotes/${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/quotes/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete");
     },
     onSuccess: () => {
@@ -172,57 +160,79 @@ export default function QuotesPage({ businessId }: Props) {
 
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      const res = await authFetch(`/api/businesses/${businessId}/quotes/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+      const res = await authFetch(`/api/quotes/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["quotes", businessId] });
       setStatusDropOpen(null);
-      toast({ title: "Status updated" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const convertMutation = useMutation({
-    mutationFn: async (quoteId: number) => {
-      const res = await authFetch(`/api/businesses/${businessId}/quotes/${quoteId}/convert`, { method: "POST" });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed"); }
-      return res.json();
-    },
-    onSuccess: (invoice) => {
+  async function handleSend(q: Quote) {
+    setSendingId(q.id);
+    try {
+      const res = await authFetch(`/api/quotes/${q.id}/send`, { method: "POST" });
+      const data = await res.json() as { emailSent?: boolean; emailTo?: string | null };
+      qc.invalidateQueries({ queryKey: ["quotes", businessId] });
+      toast({ title: "Quote sent", description: data.emailSent ? `Email sent to ${data.emailTo}` : "Marked as sent" });
+    } catch {
+      toast({ title: "Error", description: "Failed to send", variant: "destructive" });
+    } finally {
+      setSendingId(null);
+    }
+  }
+
+  async function handleAccept(q: Quote) {
+    setAcceptingId(q.id);
+    try {
+      const res = await authFetch(`/api/quotes/${q.id}/accept`, { method: "POST" });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as { error?: string }).error || "Failed"); }
+      qc.invalidateQueries({ queryKey: ["quotes", businessId] });
+      toast({ title: "Quote accepted" });
+    } catch (e) {
+      toast({ title: "Error", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setAcceptingId(null);
+    }
+  }
+
+  async function handleConvert(q: Quote) {
+    setConvertingId(q.id);
+    try {
+      const res = await authFetch(`/api/quotes/${q.id}/convert`, { method: "POST" });
+      const data = await res.json() as { invoiceNumber?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed");
       qc.invalidateQueries({ queryKey: ["quotes", businessId] });
       qc.invalidateQueries({ queryKey: ["invoices", businessId] });
-      setConverting(null);
-      toast({ title: `Invoice ${invoice.invoiceNumber} created`, description: "Quote converted to invoice" });
-    },
-    onError: (e: Error) => { toast({ title: "Error", description: e.message, variant: "destructive" }); setConverting(null); },
-  });
+      toast({ title: `Invoice ${data.invoiceNumber} created`, description: "Quote converted to invoice" });
+    } catch (e) {
+      toast({ title: "Error", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setConvertingId(null);
+    }
+  }
 
   const filtered = quotes.filter((q) =>
     q.quoteNumber.toLowerCase().includes(search.toLowerCase()) ||
     (q.customerName ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
+  // ── EDITOR VIEW ──────────────────────────────────────────────────────────────
   if (view === "editor") {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
-          <button onClick={() => setView("list")} className="p-1.5 rounded hover:bg-muted transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          <button onClick={() => setView("list")} className="p-1.5 rounded hover:bg-muted transition-colors"><ArrowLeft className="w-5 h-5" /></button>
           <h1 className="text-xl font-bold text-foreground">{editingId ? "Edit Quote" : "New Quote"}</h1>
         </div>
-
         <div className="space-y-6">
-          {/* Meta */}
           <div className="bg-card border border-border rounded-xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-4">Quote Details</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <Label>Quote #</Label>
-                <Input className="mt-1" value={form.quoteNumber} onChange={(e) => setForm((p) => ({ ...p, quoteNumber: e.target.value }))} required />
-              </div>
+              <div><Label>Quote #</Label><Input className="mt-1" value={form.quoteNumber} onChange={(e) => setForm((p) => ({ ...p, quoteNumber: e.target.value }))} required /></div>
               <div>
                 <Label>Customer</Label>
                 <select value={String(form.customerId)} onChange={(e) => setForm((p) => ({ ...p, customerId: e.target.value }))}
@@ -231,22 +241,12 @@ export default function QuotesPage({ businessId }: Props) {
                   {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div>
-                <Label>Issue Date</Label>
-                <Input type="date" className="mt-1" value={form.issueDate} onChange={(e) => setForm((p) => ({ ...p, issueDate: e.target.value }))} />
-              </div>
-              <div>
-                <Label>Expiry Date</Label>
-                <Input type="date" className="mt-1" value={form.expiryDate} onChange={(e) => setForm((p) => ({ ...p, expiryDate: e.target.value }))} />
-              </div>
-              <div>
-                <Label>Tax Rate (%)</Label>
-                <Input type="number" min="0" max="100" step="0.01" className="mt-1" value={form.taxRate} onChange={(e) => setForm((p) => ({ ...p, taxRate: e.target.value }))} />
-              </div>
+              <div><Label>Issue Date</Label><Input type="date" className="mt-1" value={form.issueDate} onChange={(e) => setForm((p) => ({ ...p, issueDate: e.target.value }))} /></div>
+              <div><Label>Expiry Date</Label><Input type="date" className="mt-1" value={form.expiryDate} onChange={(e) => setForm((p) => ({ ...p, expiryDate: e.target.value }))} /></div>
+              <div><Label>Tax Rate (%)</Label><Input type="number" min="0" max="100" step="0.01" className="mt-1" value={form.taxRate} onChange={(e) => setForm((p) => ({ ...p, taxRate: e.target.value }))} /></div>
             </div>
           </div>
 
-          {/* Line Items */}
           <div className="bg-card border border-border rounded-xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-4">Line Items</h2>
             <div className="space-y-2">
@@ -260,15 +260,11 @@ export default function QuotesPage({ businessId }: Props) {
                   <Input placeholder="hr" value={li.unit} onChange={(e) => updateLine(i, "unit", e.target.value)} className="text-sm" />
                   <Input placeholder="0.00" value={li.rate} onChange={(e) => updateLine(i, "rate", e.target.value)} className="text-sm" type="number" min="0" step="any" />
                   <div className="text-sm text-right font-medium text-foreground pr-1">{formatCurrency(parseFloat(li.amount) || 0)}</div>
-                  <button onClick={() => removeLine(i)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  <button onClick={() => removeLine(i)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"><X className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
             </div>
-            <button onClick={addLine} className="mt-3 flex items-center gap-1.5 text-sm text-primary hover:underline">
-              <Plus className="w-3.5 h-3.5" /> Add line
-            </button>
+            <button onClick={addLine} className="mt-3 flex items-center gap-1.5 text-sm text-primary hover:underline"><Plus className="w-3.5 h-3.5" /> Add line</button>
             <div className="mt-5 flex justify-end">
               <div className="w-56 space-y-2 text-sm">
                 <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
@@ -278,26 +274,17 @@ export default function QuotesPage({ businessId }: Props) {
             </div>
           </div>
 
-          {/* Notes */}
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Notes</Label>
-                <textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
-                  rows={3} className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
-              </div>
-              <div>
-                <Label>Terms</Label>
-                <textarea value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))}
-                  rows={3} className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
-              </div>
+              <div><Label>Notes</Label><textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={3} className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" /></div>
+              <div><Label>Terms</Label><textarea value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))} rows={3} className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" /></div>
             </div>
           </div>
 
           <div className="flex gap-3 justify-end">
             <Button variant="outline" onClick={() => setView("list")}>Cancel</Button>
             <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+              {saveMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
               {editingId ? "Update Quote" : "Create Quote"}
             </Button>
           </div>
@@ -306,6 +293,7 @@ export default function QuotesPage({ businessId }: Props) {
     );
   }
 
+  // ── LIST VIEW ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -375,24 +363,37 @@ export default function QuotesPage({ businessId }: Props) {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        {!q.convertedToInvoiceId && q.status !== "declined" && (
-                          <button title="Convert to invoice"
-                            onClick={() => { setConverting(q.id); convertMutation.mutate(q.id); }}
-                            disabled={convertMutation.isPending && converting === q.id}
+                      <div className="flex items-center gap-1 justify-end flex-wrap">
+                        {/* Send */}
+                        {q.status === "draft" && (
+                          <button title="Send quote" onClick={() => handleSend(q)}
+                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-blue-600">
+                            {sendingId === q.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        {/* Accept */}
+                        {["sent", "draft"].includes(q.status) && !q.convertedToInvoiceId && (
+                          <button title="Mark as accepted" onClick={() => handleAccept(q)}
+                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-green-600">
+                            {acceptingId === q.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        {/* Convert */}
+                        {!q.convertedToInvoiceId && !["declined", "expired"].includes(q.status) && (
+                          <button title="Convert to invoice" onClick={() => handleConvert(q)}
                             className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-primary">
-                            {convertMutation.isPending && converting === q.id
-                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : <ArrowRightLeft className="w-3.5 h-3.5" />}
+                            {convertingId === q.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightLeft className="w-3.5 h-3.5" />}
                           </button>
                         )}
                         {q.convertedToInvoiceId && (
                           <span className="text-xs text-purple-600 font-medium px-1">→ INV</span>
                         )}
+                        {/* Edit */}
                         <button title="Edit" onClick={() => openEdit(q)}
                           className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
+                        {/* Delete */}
                         {deleting === q.id ? (
                           <div className="flex items-center gap-1">
                             <button onClick={() => deleteMutation.mutate(q.id)} className="px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded">

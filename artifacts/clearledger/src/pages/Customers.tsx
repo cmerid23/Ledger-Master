@@ -35,7 +35,7 @@ const EMPTY_FORM = {
 function authFetch(url: string, opts: RequestInit = {}) {
   return fetch(url, {
     ...opts,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...opts.headers },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...(opts.headers as Record<string, string> ?? {}) },
   });
 }
 
@@ -51,7 +51,7 @@ export default function CustomersPage({ businessId }: Props) {
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["customers", businessId],
     queryFn: async () => {
-      const res = await authFetch(`/api/businesses/${businessId}/customers`);
+      const res = await authFetch(`/api/customers?businessId=${businessId}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -59,11 +59,20 @@ export default function CustomersPage({ businessId }: Props) {
 
   const saveMutation = useMutation({
     mutationFn: async (data: typeof EMPTY_FORM) => {
-      const url = editing
-        ? `/api/businesses/${businessId}/customers/${editing.id}`
-        : `/api/businesses/${businessId}/customers`;
-      const res = await authFetch(url, { method: editing ? "PUT" : "POST", body: JSON.stringify(data) });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed to save"); }
+      let url: string;
+      let method: string;
+      let payload: object;
+      if (editing) {
+        url = `/api/customers/${editing.id}`;
+        method = "PATCH";
+        payload = data;
+      } else {
+        url = `/api/customers`;
+        method = "POST";
+        payload = { ...data, businessId };
+      }
+      const res = await authFetch(url, { method, body: JSON.stringify(payload) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as { error?: string }).error || "Failed to save"); }
       return res.json();
     },
     onSuccess: () => {
@@ -76,7 +85,7 @@ export default function CustomersPage({ businessId }: Props) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await authFetch(`/api/businesses/${businessId}/customers/${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/customers/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete");
     },
     onSuccess: () => {
@@ -115,7 +124,6 @@ export default function CustomersPage({ businessId }: Props) {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Users className="w-6 h-6 text-primary" />
@@ -129,18 +137,11 @@ export default function CustomersPage({ businessId }: Props) {
         </Button>
       </div>
 
-      {/* Search */}
       <div className="relative mb-5">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search by name, email or city…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+        <Input placeholder="Search by name, email or city…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
       </div>
 
-      {/* Table */}
       {isLoading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
       ) : filtered.length === 0 ? (
@@ -170,29 +171,18 @@ export default function CustomersPage({ businessId }: Props) {
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <div className="space-y-0.5">
-                      {c.email && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Mail className="w-3 h-3" />{c.email}
-                        </div>
-                      )}
-                      {c.phone && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Phone className="w-3 h-3" />{c.phone}
-                        </div>
-                      )}
+                      {c.email && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Mail className="w-3 h-3" />{c.email}</div>}
+                      {c.phone && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Phone className="w-3 h-3" />{c.phone}</div>}
                     </div>
                   </td>
                   <td className="px-4 py-3 hidden lg:table-cell">
                     {(c.city || c.state) && (
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <MapPin className="w-3 h-3" />
-                        {[c.city, c.state].filter(Boolean).join(", ")}
+                        <MapPin className="w-3 h-3" />{[c.city, c.state].filter(Boolean).join(", ")}
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 hidden md:table-cell">
-                    <Badge variant="secondary">Net {c.paymentTerms}</Badge>
-                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell"><Badge variant="secondary">Net {c.paymentTerms}</Badge></td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
                       <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
@@ -203,9 +193,7 @@ export default function CustomersPage({ businessId }: Props) {
                           <button onClick={() => deleteMutation.mutate(c.id)} className="px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded hover:opacity-90">
                             {deleteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm"}
                           </button>
-                          <button onClick={() => setDeleting(null)} className="px-2 py-1 text-xs border border-border rounded hover:bg-muted">
-                            Cancel
-                          </button>
+                          <button onClick={() => setDeleting(null)} className="px-2 py-1 text-xs border border-border rounded hover:bg-muted">Cancel</button>
                         </div>
                       ) : (
                         <button onClick={() => setDeleting(c.id)} className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-destructive">
@@ -221,20 +209,14 @@ export default function CustomersPage({ businessId }: Props) {
         </div>
       )}
 
-      {/* Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="font-semibold text-foreground">{editing ? "Edit Customer" : "New Customer"}</h2>
-              <button onClick={() => setModalOpen(false)} className="p-1 rounded hover:bg-muted transition-colors">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
+              <button onClick={() => setModalOpen(false)} className="p-1 rounded hover:bg-muted transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
             </div>
-            <form
-              onSubmit={(e) => { e.preventDefault(); saveMutation.mutate(form); }}
-              className="p-5 space-y-4"
-            >
+            <form onSubmit={(e) => { e.preventDefault(); saveMutation.mutate(form); }} className="p-5 space-y-4">
               <div>
                 <Label htmlFor="name">Name *</Label>
                 <Input id="name" value={form.name} onChange={f("name")} required className="mt-1" placeholder="Acme Corp" />
@@ -242,56 +224,33 @@ export default function CustomersPage({ businessId }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" value={form.email} onChange={f("email")} className="mt-1" placeholder="billing@acme.com" />
+                  <Input id="email" type="email" value={form.email} onChange={f("email")} className="mt-1" />
                 </div>
                 <div>
                   <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" value={form.phone} onChange={f("phone")} className="mt-1" placeholder="+1 555 000 0000" />
+                  <Input id="phone" value={form.phone} onChange={f("phone")} className="mt-1" />
                 </div>
               </div>
               <div>
                 <Label htmlFor="address">Street Address</Label>
-                <Input id="address" value={form.address} onChange={f("address")} className="mt-1" placeholder="123 Main St" />
+                <Input id="address" value={form.address} onChange={f("address")} className="mt-1" />
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <Label htmlFor="city">City</Label>
-                  <Input id="city" value={form.city} onChange={f("city")} className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="state">State</Label>
-                  <Input id="state" value={form.state} onChange={f("state")} className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="zip">ZIP</Label>
-                  <Input id="zip" value={form.zip} onChange={f("zip")} className="mt-1" />
-                </div>
+                <div><Label htmlFor="city">City</Label><Input id="city" value={form.city} onChange={f("city")} className="mt-1" /></div>
+                <div><Label htmlFor="state">State</Label><Input id="state" value={form.state} onChange={f("state")} className="mt-1" /></div>
+                <div><Label htmlFor="zip">ZIP</Label><Input id="zip" value={form.zip} onChange={f("zip")} className="mt-1" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="country">Country</Label>
-                  <Input id="country" value={form.country} onChange={f("country")} className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="paymentTerms">Payment Terms (days)</Label>
-                  <Input id="paymentTerms" type="number" min={0} value={form.paymentTerms} onChange={f("paymentTerms")} className="mt-1" />
-                </div>
+                <div><Label htmlFor="country">Country</Label><Input id="country" value={form.country} onChange={f("country")} className="mt-1" /></div>
+                <div><Label htmlFor="paymentTerms">Payment Terms (days)</Label><Input id="paymentTerms" type="number" min={0} value={form.paymentTerms} onChange={f("paymentTerms")} className="mt-1" /></div>
               </div>
               <div>
                 <Label htmlFor="notes">Notes</Label>
-                <textarea
-                  id="notes"
-                  value={form.notes}
-                  onChange={f("notes")}
-                  rows={2}
-                  className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="Internal notes…"
-                />
+                <textarea id="notes" value={form.notes} onChange={f("notes")} rows={2}
+                  className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
               </div>
               <div className="flex gap-3 pt-1">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => setModalOpen(false)}>
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setModalOpen(false)}>Cancel</Button>
                 <Button type="submit" className="flex-1" disabled={saveMutation.isPending}>
                   {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (editing ? "Update" : "Create")}
                 </Button>

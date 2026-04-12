@@ -2,12 +2,11 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText, Plus, Pencil, Trash2, Search, X, Loader2, ArrowLeft,
-  Send, DollarSign, ChevronDown, RotateCcw, Eye
+  DollarSign, ChevronDown, Download, Send, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { getToken } from "@/lib/auth";
 import { formatCurrency } from "@/lib/utils";
@@ -16,7 +15,7 @@ interface Props { businessId: number }
 
 interface Customer { id: number; name: string; email: string | null; paymentTerms: number }
 interface LineItem { id?: number; description: string; quantity: string; unit: string; rate: string; amount: string; sortOrder: number }
-interface Payment { id: number; amount: string; paymentDate: string; paymentMethod: string | null; reference: string | null; notes: string | null }
+interface Payment { id: number; amount: string; paymentDate: string; paymentMethod: string | null; reference: string | null }
 
 interface Invoice {
   id: number;
@@ -56,18 +55,14 @@ const STATUSES: Record<string, { label: string; color: string }> = {
 function authFetch(url: string, opts: RequestInit = {}) {
   return fetch(url, {
     ...opts,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...opts.headers },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...(opts.headers as Record<string, string> ?? {}) },
   });
 }
 
 function today() { return new Date().toISOString().split("T")[0]!; }
-function addDays(d: string, n: number) {
-  const dt = new Date(d); dt.setDate(dt.getDate() + n);
-  return dt.toISOString().split("T")[0]!;
-}
+function addDays(d: string, n: number) { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]!; }
 
 const EMPTY_LINE: LineItem = { description: "", quantity: "1", unit: "", rate: "0", amount: "0", sortOrder: 0 };
-
 type View = "list" | "editor";
 
 export default function InvoicesPage({ businessId }: Props) {
@@ -79,8 +74,10 @@ export default function InvoicesPage({ businessId }: Props) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [paymentOpen, setPaymentOpen] = useState<number | null>(null);
   const [statusDropOpen, setStatusDropOpen] = useState<number | null>(null);
+  const [pdfLoading, setPdfLoading] = useState<number | null>(null);
+  const [sendingId, setSendingId] = useState<number | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
 
-  // Invoice form
   const [form, setForm] = useState({
     invoiceNumber: "", customerId: "" as string | number,
     issueDate: today(), dueDate: addDays(today(), 30),
@@ -94,7 +91,7 @@ export default function InvoicesPage({ businessId }: Props) {
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ["invoices", businessId],
     queryFn: async () => {
-      const res = await authFetch(`/api/businesses/${businessId}/invoices`);
+      const res = await authFetch(`/api/invoices?businessId=${businessId}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -103,23 +100,12 @@ export default function InvoicesPage({ businessId }: Props) {
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["customers", businessId],
     queryFn: async () => {
-      const res = await authFetch(`/api/businesses/${businessId}/customers`);
+      const res = await authFetch(`/api/customers?businessId=${businessId}`);
       if (!res.ok) return [];
       return res.json();
     },
   });
 
-  const { data: editingInvoice } = useQuery<Invoice>({
-    queryKey: ["invoice", businessId, editingId],
-    queryFn: async () => {
-      const res = await authFetch(`/api/businesses/${businessId}/invoices/${editingId}`);
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    enabled: !!editingId,
-  });
-
-  // Populate form when editing invoice loads
   const initEdit = useCallback((inv: Invoice) => {
     setForm({
       invoiceNumber: inv.invoiceNumber,
@@ -154,7 +140,6 @@ export default function InvoicesPage({ businessId }: Props) {
     setView("editor");
   }
 
-  // Recompute line item amount when qty/rate change
   function updateLine(idx: number, field: keyof LineItem, value: string) {
     setLineItems((prev) => {
       const next = [...prev];
@@ -167,7 +152,6 @@ export default function InvoicesPage({ businessId }: Props) {
       return next;
     });
   }
-
   function addLine() { setLineItems((p) => [...p, { ...EMPTY_LINE, sortOrder: p.length }]); }
   function removeLine(i: number) { setLineItems((p) => p.filter((_, j) => j !== i)); }
 
@@ -178,17 +162,22 @@ export default function InvoicesPage({ businessId }: Props) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const url = editingId
-        ? `/api/businesses/${businessId}/invoices/${editingId}`
-        : `/api/businesses/${businessId}/invoices`;
-      const payload = { ...form, customerId: form.customerId ? Number(form.customerId) : null, lineItems };
-      const res = await authFetch(url, { method: editingId ? "PUT" : "POST", body: JSON.stringify(payload) });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed to save"); }
+      let url: string;
+      let method: string;
+      if (editingId) {
+        url = `/api/invoices/${editingId}`;
+        method = "PATCH";
+      } else {
+        url = `/api/invoices`;
+        method = "POST";
+      }
+      const payload = { ...form, businessId, customerId: form.customerId ? Number(form.customerId) : null, lineItems };
+      const res = await authFetch(url, { method, body: JSON.stringify(payload) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as { error?: string }).error || "Failed"); }
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices", businessId] });
-      if (editingId) qc.invalidateQueries({ queryKey: ["invoice", businessId, editingId] });
       setView("list");
       toast({ title: editingId ? "Invoice updated" : "Invoice created" });
     },
@@ -197,8 +186,8 @@ export default function InvoicesPage({ businessId }: Props) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await authFetch(`/api/businesses/${businessId}/invoices/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete");
+      const res = await authFetch(`/api/invoices/${id}?force=1`, { method: "DELETE" });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as { error?: string }).error || "Failed"); }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices", businessId] });
@@ -210,24 +199,21 @@ export default function InvoicesPage({ businessId }: Props) {
 
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      const res = await authFetch(`/api/businesses/${businessId}/invoices/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
-      if (!res.ok) throw new Error("Failed to update status");
+      const res = await authFetch(`/api/invoices/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      if (!res.ok) throw new Error("Failed");
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices", businessId] });
       setStatusDropOpen(null);
-      toast({ title: "Status updated" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const paymentMutation = useMutation({
     mutationFn: async (invoiceId: number) => {
-      const res = await authFetch(`/api/businesses/${businessId}/invoices/${invoiceId}/payments`, {
-        method: "POST", body: JSON.stringify(payForm),
-      });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed"); }
+      const res = await authFetch(`/api/invoices/${invoiceId}/payments`, { method: "POST", body: JSON.stringify(payForm) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as { error?: string }).error || "Failed"); }
       return res.json();
     },
     onSuccess: () => {
@@ -239,55 +225,86 @@ export default function InvoicesPage({ businessId }: Props) {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  async function handleDownloadPdf(inv: Invoice) {
+    setPdfLoading(inv.id);
+    try {
+      const res = await fetch(`/api/invoices/${inv.id}/pdf`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error("Failed to generate PDF");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${inv.invoiceNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast({ title: "PDF Error", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setPdfLoading(null);
+    }
+  }
+
+  async function handleSend(inv: Invoice) {
+    setSendingId(inv.id);
+    try {
+      const res = await authFetch(`/api/invoices/${inv.id}/send`, { method: "POST" });
+      const data = await res.json() as { emailSent?: boolean; emailTo?: string | null };
+      qc.invalidateQueries({ queryKey: ["invoices", businessId] });
+      const msg = data.emailSent ? `Email sent to ${data.emailTo}` : "Marked as sent (no SMTP configured)";
+      toast({ title: "Invoice sent", description: msg });
+    } catch {
+      toast({ title: "Error", description: "Failed to send", variant: "destructive" });
+    } finally {
+      setSendingId(null);
+    }
+  }
+
+  async function handleDuplicate(inv: Invoice) {
+    setDuplicatingId(inv.id);
+    try {
+      const res = await authFetch(`/api/invoices/${inv.id}/duplicate`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed");
+      qc.invalidateQueries({ queryKey: ["invoices", businessId] });
+      toast({ title: "Invoice duplicated" });
+    } catch {
+      toast({ title: "Error", description: "Failed to duplicate", variant: "destructive" });
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
+
   const filtered = invoices.filter((inv) =>
     inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
     (inv.customerName ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
+  // ── EDITOR VIEW ──────────────────────────────────────────────────────────────
   if (view === "editor") {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
-          <button onClick={() => setView("list")} className="p-1.5 rounded hover:bg-muted transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-xl font-bold text-foreground">
-            {editingId ? `Edit Invoice` : "New Invoice"}
-          </h1>
+          <button onClick={() => setView("list")} className="p-1.5 rounded hover:bg-muted transition-colors"><ArrowLeft className="w-5 h-5" /></button>
+          <h1 className="text-xl font-bold text-foreground">{editingId ? "Edit Invoice" : "New Invoice"}</h1>
         </div>
-
         <div className="space-y-6">
           {/* Meta */}
           <div className="bg-card border border-border rounded-xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-4">Invoice Details</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <Label>Invoice #</Label>
-                <Input className="mt-1" value={form.invoiceNumber} onChange={(e) => setForm((p) => ({ ...p, invoiceNumber: e.target.value }))} required />
-              </div>
+              <div><Label>Invoice #</Label><Input className="mt-1" value={form.invoiceNumber} onChange={(e) => setForm((p) => ({ ...p, invoiceNumber: e.target.value }))} required /></div>
               <div>
                 <Label>Customer</Label>
-                <select
-                  value={String(form.customerId)}
-                  onChange={(e) => setForm((p) => ({ ...p, customerId: e.target.value }))}
-                  className="mt-1 w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                >
+                <select value={String(form.customerId)} onChange={(e) => setForm((p) => ({ ...p, customerId: e.target.value }))}
+                  className="mt-1 w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring">
                   <option value="">— No customer —</option>
                   {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div>
-                <Label>Currency</Label>
-                <Input className="mt-1" value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} />
-              </div>
-              <div>
-                <Label>Issue Date</Label>
-                <Input type="date" className="mt-1" value={form.issueDate} onChange={(e) => setForm((p) => ({ ...p, issueDate: e.target.value }))} />
-              </div>
-              <div>
-                <Label>Due Date</Label>
-                <Input type="date" className="mt-1" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} />
-              </div>
+              <div><Label>Currency</Label><Input className="mt-1" value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} /></div>
+              <div><Label>Issue Date</Label><Input type="date" className="mt-1" value={form.issueDate} onChange={(e) => setForm((p) => ({ ...p, issueDate: e.target.value }))} /></div>
+              <div><Label>Due Date</Label><Input type="date" className="mt-1" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} /></div>
             </div>
           </div>
 
@@ -304,65 +321,48 @@ export default function InvoicesPage({ businessId }: Props) {
                   <Input placeholder="1" value={li.quantity} onChange={(e) => updateLine(i, "quantity", e.target.value)} className="text-sm" type="number" min="0" step="any" />
                   <Input placeholder="hr" value={li.unit} onChange={(e) => updateLine(i, "unit", e.target.value)} className="text-sm" />
                   <Input placeholder="0.00" value={li.rate} onChange={(e) => updateLine(i, "rate", e.target.value)} className="text-sm" type="number" min="0" step="any" />
-                  <div className="text-sm text-right font-medium text-foreground pr-1">
-                    {formatCurrency(parseFloat(li.amount) || 0)}
-                  </div>
-                  <button onClick={() => removeLine(i)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="text-sm text-right font-medium text-foreground pr-1">{formatCurrency(parseFloat(li.amount) || 0)}</div>
+                  <button onClick={() => removeLine(i)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"><X className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
             </div>
-            <button onClick={addLine} className="mt-3 flex items-center gap-1.5 text-sm text-primary hover:underline">
-              <Plus className="w-3.5 h-3.5" /> Add line
-            </button>
-
-            {/* Totals */}
+            <button onClick={addLine} className="mt-3 flex items-center gap-1.5 text-sm text-primary hover:underline"><Plus className="w-3.5 h-3.5" /> Add line</button>
             <div className="mt-5 flex justify-end">
               <div className="w-64 space-y-2 text-sm">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
-                </div>
+                <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
                 <div className="flex items-center gap-2 justify-between">
                   <span className="text-muted-foreground">Tax (%)</span>
-                  <Input type="number" min="0" max="100" step="0.01" value={form.taxRate}
-                    onChange={(e) => setForm((p) => ({ ...p, taxRate: e.target.value }))}
-                    className="w-24 h-7 text-sm text-right" />
+                  <Input type="number" min="0" max="100" step="0.01" value={form.taxRate} onChange={(e) => setForm((p) => ({ ...p, taxRate: e.target.value }))} className="w-24 h-7 text-sm text-right" />
                 </div>
                 <div className="flex items-center gap-2 justify-between">
                   <span className="text-muted-foreground">Discount ($)</span>
-                  <Input type="number" min="0" step="0.01" value={form.discountAmount}
-                    onChange={(e) => setForm((p) => ({ ...p, discountAmount: e.target.value }))}
-                    className="w-24 h-7 text-sm text-right" />
+                  <Input type="number" min="0" step="0.01" value={form.discountAmount} onChange={(e) => setForm((p) => ({ ...p, discountAmount: e.target.value }))} className="w-24 h-7 text-sm text-right" />
                 </div>
-                <div className="flex justify-between font-bold text-foreground border-t border-border pt-2 text-base">
-                  <span>Total</span><span>{formatCurrency(total)}</span>
-                </div>
+                <div className="flex justify-between font-bold text-foreground border-t border-border pt-2 text-base"><span>Total</span><span>{formatCurrency(total)}</span></div>
               </div>
             </div>
           </div>
 
-          {/* Notes & Terms */}
+          {/* Notes */}
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Notes (visible to customer)</Label>
-                <textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
-                  rows={3} className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" placeholder="Thank you for your business!" />
+                <textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={3}
+                  className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
               </div>
               <div>
                 <Label>Terms</Label>
-                <textarea value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))}
-                  rows={3} className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" placeholder="Payment due within 30 days…" />
+                <textarea value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))} rows={3}
+                  className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
               </div>
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex gap-3 justify-end">
             <Button variant="outline" onClick={() => setView("list")}>Cancel</Button>
             <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+              {saveMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
               {editingId ? "Update Invoice" : "Create Invoice"}
             </Button>
           </div>
@@ -371,7 +371,7 @@ export default function InvoicesPage({ businessId }: Props) {
     );
   }
 
-  // List view
+  // ── LIST VIEW ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -389,28 +389,24 @@ export default function InvoicesPage({ businessId }: Props) {
       {invoices.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[
-            { label: "Total Outstanding", value: invoices.filter(i => ["sent","viewed","partial","overdue"].includes(i.status)).reduce((s, i) => s + parseFloat(i.balanceDue), 0), color: "text-foreground" },
+            { label: "Outstanding", value: invoices.filter(i => ["sent","viewed","partial","overdue"].includes(i.status)).reduce((s, i) => s + parseFloat(i.balanceDue), 0), color: "text-foreground" },
             { label: "Overdue", value: invoices.filter(i => i.status === "overdue").reduce((s, i) => s + parseFloat(i.balanceDue), 0), color: "text-destructive" },
-            { label: "Paid (All Time)", value: invoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(i.total), 0), color: "text-green-600" },
+            { label: "Paid (all time)", value: invoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(i.total), 0), color: "text-green-600" },
             { label: "Drafts", value: invoices.filter(i => i.status === "draft").length, color: "text-muted-foreground", isCount: true },
           ].map((card) => (
             <div key={card.label} className="bg-card border border-border rounded-xl p-4">
               <p className="text-xs text-muted-foreground mb-1">{card.label}</p>
-              <p className={`text-lg font-bold ${card.color}`}>
-                {card.isCount ? card.value : formatCurrency(card.value as number)}
-              </p>
+              <p className={`text-lg font-bold ${card.color}`}>{card.isCount ? card.value : formatCurrency(card.value as number)}</p>
             </div>
           ))}
         </div>
       )}
 
-      {/* Search */}
       <div className="relative mb-5">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input placeholder="Search by invoice # or customer…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
       </div>
 
-      {/* Table */}
       {isLoading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
       ) : filtered.length === 0 ? (
@@ -447,15 +443,12 @@ export default function InvoicesPage({ businessId }: Props) {
                     <td className="px-4 py-3 text-right hidden md:table-cell">
                       {parseFloat(inv.balanceDue) > 0
                         ? <span className="text-destructive font-medium">{formatCurrency(parseFloat(inv.balanceDue))}</span>
-                        : <span className="text-green-600 font-medium">Paid</span>
-                      }
+                        : <span className="text-green-600 font-medium">Paid</span>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="relative">
-                        <button
-                          onClick={() => setStatusDropOpen(statusDropOpen === inv.id ? null : inv.id)}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${st.color}`}
-                        >
+                        <button onClick={() => setStatusDropOpen(statusDropOpen === inv.id ? null : inv.id)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${st.color}`}>
                           {st.label}<ChevronDown className="w-3 h-3" />
                         </button>
                         {statusDropOpen === inv.id && (
@@ -471,20 +464,39 @@ export default function InvoicesPage({ businessId }: Props) {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        {inv.status !== "paid" && inv.status !== "cancelled" && (
+                      <div className="flex items-center gap-1 justify-end flex-wrap">
+                        {/* PDF */}
+                        <button title="Download PDF" onClick={() => handleDownloadPdf(inv)}
+                          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                          {pdfLoading === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                        </button>
+                        {/* Send */}
+                        {inv.status === "draft" && (
+                          <button title="Mark as sent" onClick={() => handleSend(inv)}
+                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-blue-600">
+                            {sendingId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        {/* Duplicate */}
+                        <button title="Duplicate" onClick={() => handleDuplicate(inv)}
+                          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                          {duplicatingId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                        {/* Record Payment */}
+                        {!["paid", "cancelled"].includes(inv.status) && (
                           <button title="Record payment" onClick={() => { setPaymentOpen(inv.id); setPayForm({ amount: inv.balanceDue, paymentDate: today(), paymentMethod: "bank transfer", reference: "", notes: "" }); }}
                             className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-green-600">
                             <DollarSign className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        <button title="Edit" onClick={() => openEdit(inv)}
-                          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                        {/* Edit */}
+                        <button title="Edit" onClick={() => openEdit(inv)} className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
+                        {/* Delete */}
                         {deleting === inv.id ? (
                           <div className="flex items-center gap-1">
-                            <button onClick={() => deleteMutation.mutate(inv.id)} className="px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded hover:opacity-90">
+                            <button onClick={() => deleteMutation.mutate(inv.id)} className="px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded">
                               {deleteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm"}
                             </button>
                             <button onClick={() => setDeleting(null)} className="px-2 py-1 text-xs border border-border rounded hover:bg-muted">Cancel</button>
@@ -513,14 +525,8 @@ export default function InvoicesPage({ businessId }: Props) {
               <button onClick={() => setPaymentOpen(null)} className="p-1 rounded hover:bg-muted"><X className="w-4 h-4 text-muted-foreground" /></button>
             </div>
             <form onSubmit={(e) => { e.preventDefault(); paymentMutation.mutate(paymentOpen); }} className="p-5 space-y-4">
-              <div>
-                <Label>Amount</Label>
-                <Input type="number" min="0.01" step="0.01" className="mt-1" value={payForm.amount} onChange={(e) => setPayForm((p) => ({ ...p, amount: e.target.value }))} required />
-              </div>
-              <div>
-                <Label>Date</Label>
-                <Input type="date" className="mt-1" value={payForm.paymentDate} onChange={(e) => setPayForm((p) => ({ ...p, paymentDate: e.target.value }))} />
-              </div>
+              <div><Label>Amount</Label><Input type="number" min="0.01" step="0.01" className="mt-1" value={payForm.amount} onChange={(e) => setPayForm((p) => ({ ...p, amount: e.target.value }))} required /></div>
+              <div><Label>Date</Label><Input type="date" className="mt-1" value={payForm.paymentDate} onChange={(e) => setPayForm((p) => ({ ...p, paymentDate: e.target.value }))} /></div>
               <div>
                 <Label>Method</Label>
                 <select value={payForm.paymentMethod} onChange={(e) => setPayForm((p) => ({ ...p, paymentMethod: e.target.value }))}
@@ -528,10 +534,7 @@ export default function InvoicesPage({ businessId }: Props) {
                   {["cash", "check", "bank transfer", "card"].map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
-              <div>
-                <Label>Reference</Label>
-                <Input className="mt-1" placeholder="Cheque #, transaction ref…" value={payForm.reference} onChange={(e) => setPayForm((p) => ({ ...p, reference: e.target.value }))} />
-              </div>
+              <div><Label>Reference</Label><Input className="mt-1" placeholder="Cheque # / transaction ref…" value={payForm.reference} onChange={(e) => setPayForm((p) => ({ ...p, reference: e.target.value }))} /></div>
               <div className="flex gap-3 pt-1">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => setPaymentOpen(null)}>Cancel</Button>
                 <Button type="submit" className="flex-1" disabled={paymentMutation.isPending}>
