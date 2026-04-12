@@ -19,6 +19,7 @@ import ReconcilePage from "@/pages/Reconcile";
 import ReportsPage from "@/pages/Reports";
 import UploadPage from "@/pages/Upload";
 import SettingsPage from "@/pages/Settings";
+import ReceiptsPage from "@/pages/Receipts";
 import SelectBusinessPage from "@/pages/SelectBusiness";
 import AdminDashboardPage from "@/pages/admin/AdminDashboard";
 import AdminUsersPage from "@/pages/admin/AdminUsers";
@@ -79,6 +80,9 @@ function ProtectedApp() {
         </Route>
         <Route path="/upload">
           <UploadPage businessId={businessId} />
+        </Route>
+        <Route path="/receipts">
+          <ReceiptsPage businessId={businessId} />
         </Route>
         <Route path="/settings">
           <SettingsPage businessId={businessId} onBusinessChange={handleBusinessChange} />

@@ -16,6 +16,7 @@ import {
   CheckCircle,
   Check,
   Plus,
+  Receipt,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -40,6 +41,7 @@ const navItems = [
   { path: "/reconcile", label: "Reconciliation", icon: CheckCircle },
   { path: "/reports", label: "Reports", icon: BarChart3 },
   { path: "/upload", label: "Upload Statement", icon: Upload },
+  { path: "/receipts", label: "Receipts", icon: Receipt },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

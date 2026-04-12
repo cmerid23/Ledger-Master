@@ -4,3 +4,4 @@ export * from "./accounts";
 export * from "./transactions";
 export * from "./journalEntries";
 export * from "./reconciliations";
+export * from "./receipts";

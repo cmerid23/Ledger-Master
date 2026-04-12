@@ -11,6 +11,8 @@ import dashboardRouter from "./dashboard";
 import uploadRouter from "./upload";
 import adminRouter from "./admin";
 import demoRouter from "./demo";
+import storageRouter from "./storage";
+import receiptsRouter from "./receipts";
 
 const router: IRouter = Router();
 
@@ -26,5 +28,7 @@ router.use(reconciliationsRouter);
 router.use(reportsRouter);
 router.use(dashboardRouter);
 router.use(uploadRouter);
+router.use(storageRouter);
+router.use(receiptsRouter);
 
 export default router;
