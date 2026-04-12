@@ -346,9 +346,9 @@ function MileageTab({ businessId }: { businessId: number }) {
   });
 
   const { data: logsData, isLoading } = useQuery<{ logs: MileageLog[]; totalBusinessMiles: number; totalDeductionValue: number }>({
-    queryKey: ["mileage-logs", businessId, year],
+    queryKey: ["mileage", businessId, year],
     queryFn: async () => {
-      const r = await fetch(`/api/mileage-logs?businessId=${businessId}&year=${year}`, { headers: apiHeaders() });
+      const r = await fetch(`/api/mileage?businessId=${businessId}&year=${year}`, { headers: apiHeaders() });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
@@ -368,14 +368,14 @@ function MileageTab({ businessId }: { businessId: number }) {
 
   const saveMutation = useMutation({
     mutationFn: async (data: typeof form) => {
-      const url = editing ? `/api/mileage-logs/${editing.id}` : "/api/mileage-logs";
+      const url = editing ? `/api/mileage/${editing.id}` : "/api/mileage";
       const method = editing ? "PATCH" : "POST";
       const r = await fetch(url, { method, headers: apiHeaders(), body: JSON.stringify({ ...data, businessId, vehicleId: data.vehicleId || null }) });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["mileage-logs", businessId] });
+      qc.invalidateQueries({ queryKey: ["mileage", businessId] });
       qc.invalidateQueries({ queryKey: ["vehicles", businessId] });
       setModalOpen(false);
       setEditing(null);
@@ -387,11 +387,11 @@ function MileageTab({ businessId }: { businessId: number }) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(`/api/mileage-logs/${id}`, { method: "DELETE", headers: apiHeaders() });
+      const r = await fetch(`/api/mileage/${id}`, { method: "DELETE", headers: apiHeaders() });
       if (!r.ok) throw new Error(await r.text());
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["mileage-logs", businessId] });
+      qc.invalidateQueries({ queryKey: ["mileage", businessId] });
       qc.invalidateQueries({ queryKey: ["vehicles", businessId] });
       setDeletingId(null);
       toast({ title: "Log deleted" });
@@ -655,9 +655,9 @@ function FuelTab({ businessId }: { businessId: number }) {
   });
 
   const { data: logsData, isLoading } = useQuery<{ logs: FuelLog[]; totalGallons: number; totalAmount: number; avgPricePerGallon: number }>({
-    queryKey: ["fuel-logs", businessId, year],
+    queryKey: ["fuel", businessId, year],
     queryFn: async () => {
-      const r = await fetch(`/api/fuel-logs?businessId=${businessId}&year=${year}`, { headers: apiHeaders() });
+      const r = await fetch(`/api/fuel?businessId=${businessId}&year=${year}`, { headers: apiHeaders() });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
@@ -680,14 +680,14 @@ function FuelTab({ businessId }: { businessId: number }) {
 
   const saveMutation = useMutation({
     mutationFn: async (data: typeof form) => {
-      const url = editing ? `/api/fuel-logs/${editing.id}` : "/api/fuel-logs";
+      const url = editing ? `/api/fuel/${editing.id}` : "/api/fuel";
       const method = editing ? "PATCH" : "POST";
       const r = await fetch(url, { method, headers: apiHeaders(), body: JSON.stringify({ ...data, businessId, vehicleId: data.vehicleId || null, iftaReportable: data.iftaReportable === "true" }) });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["fuel-logs", businessId] });
+      qc.invalidateQueries({ queryKey: ["fuel", businessId] });
       qc.invalidateQueries({ queryKey: ["vehicles", businessId] });
       setModalOpen(false);
       setEditing(null);
@@ -699,11 +699,11 @@ function FuelTab({ businessId }: { businessId: number }) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(`/api/fuel-logs/${id}`, { method: "DELETE", headers: apiHeaders() });
+      const r = await fetch(`/api/fuel/${id}`, { method: "DELETE", headers: apiHeaders() });
       if (!r.ok) throw new Error(await r.text());
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["fuel-logs", businessId] });
+      qc.invalidateQueries({ queryKey: ["fuel", businessId] });
       qc.invalidateQueries({ queryKey: ["vehicles", businessId] });
       setDeletingId(null);
       toast({ title: "Fuel log deleted" });

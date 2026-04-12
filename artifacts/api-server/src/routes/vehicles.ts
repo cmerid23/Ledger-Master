@@ -1,13 +1,22 @@
 import { Router, type IRouter } from "express";
 import {
   db, vehiclesTable, mileageLogsTable, fuelLogsTable,
-  businessesTable, jobsTable,
+  businessesTable,
 } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 
 const router: IRouter = Router();
 router.use(authMiddleware);
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const IRS_RATES: Record<number, number> = { 2024: 0.67, 2025: 0.70 };
+const DEFAULT_IRS_RATE = 0.67;
+function irsRate(year: number) { return IRS_RATES[year] ?? DEFAULT_IRS_RATE; }
+
+const QUARTERS: Record<number, number[]> = { 1: [1,2,3], 2: [4,5,6], 3: [7,8,9], 4: [10,11,12] };
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,62 +59,95 @@ async function verifyFuelLog(logId: number, userId: number) {
 
 const n = (v: unknown) => Number(v ?? 0);
 
+// ── Enrich a raw mileage row with computed miles + IRS deduction ──────────────
+function enrichMileageRow(row: {
+  log: typeof mileageLogsTable.$inferSelect;
+  vehicleName: string | null;
+  vehicleLicensePlate: string | null;
+}) {
+  const miles = n(row.log.miles) ||
+    (row.log.odometerEnd && row.log.odometerStart
+      ? n(row.log.odometerEnd) - n(row.log.odometerStart)
+      : 0);
+  const logYear = new Date(row.log.date).getFullYear();
+  const rate = irsRate(logYear);
+  return {
+    ...row.log,
+    miles,
+    irsRate: rate,
+    deductionValue: row.log.tripType === "business" ? miles * rate : 0,
+    vehicleName: row.vehicleName,
+    vehicleLicensePlate: row.vehicleLicensePlate,
+  };
+}
+
+// ── Fetch all mileage logs for a business / optional year ────────────────────
+async function getMileageLogs(businessId: number, year: number | null, vehicleId: number | null) {
+  const rows = await db
+    .select({
+      log: mileageLogsTable,
+      vehicleName: vehiclesTable.name,
+      vehicleLicensePlate: vehiclesTable.licensePlate,
+    })
+    .from(mileageLogsTable)
+    .leftJoin(vehiclesTable, eq(mileageLogsTable.vehicleId, vehiclesTable.id))
+    .where(and(
+      eq(mileageLogsTable.businessId, businessId),
+      vehicleId ? eq(mileageLogsTable.vehicleId, vehicleId) : undefined,
+    ))
+    .orderBy(desc(mileageLogsTable.date));
+
+  const filtered = year ? rows.filter((r) => r.log.date.startsWith(String(year))) : rows;
+  return filtered.map(enrichMileageRow);
+}
+
 // ══════════════════════════════════════════════════════════════
 // VEHICLES
 // ══════════════════════════════════════════════════════════════
 
-// GET /api/vehicles?businessId=X
+// GET /api/vehicles
 router.get("/vehicles", async (req: AuthRequest, res): Promise<void> => {
   const businessId = parseInt(req.query.businessId as string);
   if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
   const biz = await verifyBusiness(businessId, req.userId!);
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
 
-  // Enrich with mileage / fuel totals
   const vehicles = await db.select().from(vehiclesTable)
     .where(eq(vehiclesTable.businessId, businessId))
     .orderBy(vehiclesTable.name);
 
-  const ids = vehicles.map((v) => v.id);
+  const [mileageTotals, fuelTotals] = await Promise.all([
+    db.select({
+      vehicleId: mileageLogsTable.vehicleId,
+      totalMiles: sql<number>`coalesce(sum(${mileageLogsTable.miles}), 0)`,
+      logCount: sql<number>`count(*)`,
+    })
+    .from(mileageLogsTable)
+    .where(eq(mileageLogsTable.businessId, businessId))
+    .groupBy(mileageLogsTable.vehicleId),
 
-  // Mileage totals per vehicle
-  const mileageTotals = ids.length > 0
-    ? await db.select({
-        vehicleId: mileageLogsTable.vehicleId,
-        totalMiles: sql<number>`coalesce(sum(${mileageLogsTable.miles}), 0)`,
-        logCount: sql<number>`count(*)`,
-      })
-      .from(mileageLogsTable)
-      .where(eq(mileageLogsTable.businessId, businessId))
-      .groupBy(mileageLogsTable.vehicleId)
-    : [];
-
-  // Fuel totals per vehicle
-  const fuelTotals = ids.length > 0
-    ? await db.select({
-        vehicleId: fuelLogsTable.vehicleId,
-        totalGallons: sql<number>`coalesce(sum(${fuelLogsTable.gallons}), 0)`,
-        totalFuelCost: sql<number>`coalesce(sum(${fuelLogsTable.totalAmount}), 0)`,
-        logCount: sql<number>`count(*)`,
-      })
-      .from(fuelLogsTable)
-      .where(eq(fuelLogsTable.businessId, businessId))
-      .groupBy(fuelLogsTable.vehicleId)
-    : [];
+    db.select({
+      vehicleId: fuelLogsTable.vehicleId,
+      totalGallons: sql<number>`coalesce(sum(${fuelLogsTable.gallons}), 0)`,
+      totalFuelCost: sql<number>`coalesce(sum(${fuelLogsTable.totalAmount}), 0)`,
+      logCount: sql<number>`count(*)`,
+    })
+    .from(fuelLogsTable)
+    .where(eq(fuelLogsTable.businessId, businessId))
+    .groupBy(fuelLogsTable.vehicleId),
+  ]);
 
   const mileageMap = new Map(mileageTotals.map((r) => [r.vehicleId, r]));
-  const fuelMap = new Map(fuelTotals.map((r) => [r.vehicleId, r]));
+  const fuelMap    = new Map(fuelTotals.map((r) => [r.vehicleId, r]));
 
-  const enriched = vehicles.map((v) => ({
+  res.json(vehicles.map((v) => ({
     ...v,
-    totalMiles: n(mileageMap.get(v.id)?.totalMiles),
+    totalMiles:      n(mileageMap.get(v.id)?.totalMiles),
     mileageLogCount: n(mileageMap.get(v.id)?.logCount),
-    totalGallons: n(fuelMap.get(v.id)?.totalGallons),
-    totalFuelCost: n(fuelMap.get(v.id)?.totalFuelCost),
-    fuelLogCount: n(fuelMap.get(v.id)?.logCount),
-  }));
-
-  res.json(enriched);
+    totalGallons:    n(fuelMap.get(v.id)?.totalGallons),
+    totalFuelCost:   n(fuelMap.get(v.id)?.totalFuelCost),
+    fuelLogCount:    n(fuelMap.get(v.id)?.logCount),
+  })));
 });
 
 // POST /api/vehicles
@@ -116,9 +158,12 @@ router.post("/vehicles", async (req: AuthRequest, res): Promise<void> => {
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
 
   const [v] = await db.insert(vehiclesTable).values({
-    businessId: Number(businessId), name, make: make || null, model: model || null,
-    year: year ? Number(year) : null, licensePlate: licensePlate || null, vin: vin || null,
-    odometerStart: odometerStart || null, fuelType: fuelType || "diesel",
+    businessId: Number(businessId), name,
+    make: make || null, model: model || null,
+    year: year ? Number(year) : null,
+    licensePlate: licensePlate || null, vin: vin || null,
+    odometerStart: odometerStart || null,
+    fuelType: fuelType || "diesel",
     notes: notes || null, isActive: true,
   }).returning();
   res.status(201).json(v);
@@ -138,19 +183,19 @@ router.patch("/vehicles/:id", async (req: AuthRequest, res): Promise<void> => {
   if (!v) { res.status(404).json({ error: "Vehicle not found" }); return; }
 
   const { name, make, model, year, licensePlate, vin, odometerStart, fuelType, isActive, notes } = req.body;
-  const updates: Partial<typeof vehiclesTable.$inferInsert> = {};
-  if (name !== undefined) updates.name = name;
-  if (make !== undefined) updates.make = make || null;
-  if (model !== undefined) updates.model = model || null;
-  if (year !== undefined) updates.year = year ? Number(year) : null;
-  if (licensePlate !== undefined) updates.licensePlate = licensePlate || null;
-  if (vin !== undefined) updates.vin = vin || null;
-  if (odometerStart !== undefined) updates.odometerStart = odometerStart || null;
-  if (fuelType !== undefined) updates.fuelType = fuelType;
-  if (isActive !== undefined) updates.isActive = Boolean(isActive);
-  if (notes !== undefined) updates.notes = notes || null;
+  const u: Partial<typeof vehiclesTable.$inferInsert> = {};
+  if (name        !== undefined) u.name         = name;
+  if (make        !== undefined) u.make         = make || null;
+  if (model       !== undefined) u.model        = model || null;
+  if (year        !== undefined) u.year         = year ? Number(year) : null;
+  if (licensePlate !== undefined) u.licensePlate = licensePlate || null;
+  if (vin         !== undefined) u.vin          = vin || null;
+  if (odometerStart !== undefined) u.odometerStart = odometerStart || null;
+  if (fuelType    !== undefined) u.fuelType     = fuelType;
+  if (isActive    !== undefined) u.isActive     = Boolean(isActive);
+  if (notes       !== undefined) u.notes        = notes || null;
 
-  const [updated] = await db.update(vehiclesTable).set(updates).where(eq(vehiclesTable.id, v.id)).returning();
+  const [updated] = await db.update(vehiclesTable).set(u).where(eq(vehiclesTable.id, v.id)).returning();
   res.json(updated);
 });
 
@@ -163,88 +208,155 @@ router.delete("/vehicles/:id", async (req: AuthRequest, res): Promise<void> => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// MILEAGE LOGS
+// MILEAGE  — all static routes BEFORE /:id
 // ══════════════════════════════════════════════════════════════
 
-// GET /api/mileage-logs?businessId=X[&vehicleId=Y&year=Z]
-router.get("/mileage-logs", async (req: AuthRequest, res): Promise<void> => {
+// ── GET /api/mileage/report?businessId=X&year=Y ──────────────────────────────
+router.get("/mileage/report", async (req: AuthRequest, res): Promise<void> => {
+  const businessId = parseInt(req.query.businessId as string);
+  if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
+  const biz = await verifyBusiness(businessId, req.userId!);
+  if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
+
+  const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+  const logs = await getMileageLogs(businessId, year, null);
+
+  // By vehicle
+  const vehicleMap = new Map<number | null, { vehicleId: number | null; vehicleName: string | null; businessMiles: number; personalMiles: number; otherMiles: number; deductionValue: number; tripCount: number }>();
+  for (const l of logs) {
+    const key = l.vehicleId;
+    if (!vehicleMap.has(key)) vehicleMap.set(key, { vehicleId: key, vehicleName: l.vehicleName, businessMiles: 0, personalMiles: 0, otherMiles: 0, deductionValue: 0, tripCount: 0 });
+    const e = vehicleMap.get(key)!;
+    if (l.tripType === "business")       { e.businessMiles += l.miles; e.deductionValue += l.deductionValue; }
+    else if (l.tripType === "personal")  { e.personalMiles += l.miles; }
+    else                                 { e.otherMiles += l.miles; }
+    e.tripCount++;
+  }
+
+  // By month
+  const byMonth = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1, label: MONTH_NAMES[i],
+    businessMiles: 0, personalMiles: 0, deductionValue: 0, tripCount: 0,
+  }));
+  for (const l of logs) {
+    const m = new Date(l.date).getMonth(); // 0-indexed
+    if (l.tripType === "business") { byMonth[m].businessMiles += l.miles; byMonth[m].deductionValue += l.deductionValue; }
+    else                           { byMonth[m].personalMiles += l.miles; }
+    byMonth[m].tripCount++;
+  }
+
+  // By trip type
+  const tripTypeMap = new Map<string, { tripType: string; miles: number; trips: number; deductionValue: number }>();
+  for (const l of logs) {
+    if (!tripTypeMap.has(l.tripType)) tripTypeMap.set(l.tripType, { tripType: l.tripType, miles: 0, trips: 0, deductionValue: 0 });
+    const e = tripTypeMap.get(l.tripType)!;
+    e.miles += l.miles; e.trips++; e.deductionValue += l.deductionValue;
+  }
+
+  const bizLogs = logs.filter((l) => l.tripType === "business");
+  const rate = irsRate(year);
+
+  res.json({
+    year,
+    irsRate: rate,
+    businessName: biz.name,
+    totalMiles:        logs.reduce((s, l) => s + l.miles, 0),
+    totalBusinessMiles: bizLogs.reduce((s, l) => s + l.miles, 0),
+    totalPersonalMiles: logs.filter((l) => l.tripType === "personal").reduce((s, l) => s + l.miles, 0),
+    totalDeductionValue: bizLogs.reduce((s, l) => s + l.deductionValue, 0),
+    tripCount: logs.length,
+    byVehicle: Array.from(vehicleMap.values()).sort((a, b) => b.businessMiles - a.businessMiles),
+    byMonth,
+    byTripType: Array.from(tripTypeMap.values()).sort((a, b) => b.miles - a.miles),
+  });
+});
+
+// ── GET /api/mileage/tax-deduction?businessId=X&year=Y ───────────────────────
+router.get("/mileage/tax-deduction", async (req: AuthRequest, res): Promise<void> => {
+  const businessId = parseInt(req.query.businessId as string);
+  if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
+  const biz = await verifyBusiness(businessId, req.userId!);
+  if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
+
+  const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+  const logs = await getMileageLogs(businessId, year, null);
+  const bizLogs = logs.filter((l) => l.tripType === "business");
+  const rate = irsRate(year);
+  const totalBusinessMiles = bizLogs.reduce((s, l) => s + l.miles, 0);
+  const totalDeduction = totalBusinessMiles * rate;
+
+  // By month
+  const byMonth = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1, label: MONTH_NAMES[i], businessMiles: 0, deductionValue: 0,
+  }));
+  for (const l of bizLogs) {
+    const m = new Date(l.date).getMonth();
+    byMonth[m].businessMiles += l.miles;
+    byMonth[m].deductionValue += l.deductionValue;
+  }
+
+  // Quarterly
+  const byQuarter = [1, 2, 3, 4].map((q) => {
+    const months = QUARTERS[q];
+    const qLogs = bizLogs.filter((l) => months.includes(new Date(l.date).getMonth() + 1));
+    const miles = qLogs.reduce((s, l) => s + l.miles, 0);
+    return { quarter: `Q${q}`, months: months.map((m) => MONTH_NAMES[m - 1]).join("/"), businessMiles: miles, deductionValue: miles * rate };
+  });
+
+  // By vehicle
+  const vehicleMap = new Map<number | null, { vehicleId: number | null; vehicleName: string | null; businessMiles: number; deductionValue: number }>();
+  for (const l of bizLogs) {
+    if (!vehicleMap.has(l.vehicleId)) vehicleMap.set(l.vehicleId, { vehicleId: l.vehicleId, vehicleName: l.vehicleName, businessMiles: 0, deductionValue: 0 });
+    const e = vehicleMap.get(l.vehicleId)!;
+    e.businessMiles += l.miles; e.deductionValue += l.deductionValue;
+  }
+
+  res.json({
+    year,
+    irsRate: rate,
+    businessName: biz.name,
+    totalBusinessMiles,
+    totalDeduction,
+    byMonth,
+    byQuarter,
+    byVehicle: Array.from(vehicleMap.values()).sort((a, b) => b.businessMiles - a.businessMiles),
+    note: "IRS standard mileage rate deduction estimate. Actual deductible amount may differ — consult your tax advisor.",
+  });
+});
+
+// ── GET /api/mileage?businessId=X[&vehicleId=Y&year=Z] ───────────────────────
+router.get("/mileage", async (req: AuthRequest, res): Promise<void> => {
   const businessId = parseInt(req.query.businessId as string);
   if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
   const biz = await verifyBusiness(businessId, req.userId!);
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
 
   const vehicleId = req.query.vehicleId ? parseInt(req.query.vehicleId as string) : null;
-  const year = req.query.year ? parseInt(req.query.year as string) : null;
+  const year      = req.query.year      ? parseInt(req.query.year as string)      : null;
 
-  const rows = await db
-    .select({
-      log: mileageLogsTable,
-      vehicleName: vehiclesTable.name,
-      vehicleLicensePlate: vehiclesTable.licensePlate,
-    })
-    .from(mileageLogsTable)
-    .leftJoin(vehiclesTable, eq(mileageLogsTable.vehicleId, vehiclesTable.id))
-    .where(and(
-      eq(mileageLogsTable.businessId, businessId),
-      vehicleId ? eq(mileageLogsTable.vehicleId, vehicleId) : undefined,
-    ))
-    .orderBy(desc(mileageLogsTable.date));
-
-  const filtered = year
-    ? rows.filter((r) => r.log.date.startsWith(String(year)))
-    : rows;
-
-  // IRS mileage rates
-  const IRS_RATES: Record<number, number> = { 2024: 0.67, 2025: 0.70 };
-  const DEFAULT_RATE = 0.67;
-
-  const logs = filtered.map((r) => {
-    const miles = n(r.log.miles) ||
-      (r.log.odometerEnd && r.log.odometerStart ? n(r.log.odometerEnd) - n(r.log.odometerStart) : 0);
-    const logYear = new Date(r.log.date).getFullYear();
-    const irsRate = IRS_RATES[logYear] ?? DEFAULT_RATE;
-    return {
-      ...r.log,
-      miles,
-      deductionValue: r.log.tripType === "business" ? miles * irsRate : 0,
-      irsRate,
-      vehicleName: r.vehicleName,
-      vehicleLicensePlate: r.vehicleLicensePlate,
-    };
-  });
-
-  const totalBusinessMiles = logs.filter((l) => l.tripType === "business").reduce((s, l) => s + l.miles, 0);
+  const logs = await getMileageLogs(businessId, year, vehicleId);
+  const totalBusinessMiles  = logs.filter((l) => l.tripType === "business").reduce((s, l) => s + l.miles, 0);
   const totalDeductionValue = logs.filter((l) => l.tripType === "business").reduce((s, l) => s + l.deductionValue, 0);
 
   res.json({ logs, totalBusinessMiles, totalDeductionValue });
 });
 
-// POST /api/mileage-logs
-router.post("/mileage-logs", async (req: AuthRequest, res): Promise<void> => {
-  const {
-    businessId, vehicleId, jobId, driverName, date,
-    startLocation, endLocation, odometerStart, odometerEnd,
-    purpose, tripType, notes,
-  } = req.body;
-
+// ── POST /api/mileage ─────────────────────────────────────────────────────────
+router.post("/mileage", async (req: AuthRequest, res): Promise<void> => {
+  const { businessId, vehicleId, jobId, driverName, date, startLocation, endLocation, odometerStart, odometerEnd, purpose, tripType, notes } = req.body;
   if (!businessId || !date) { res.status(400).json({ error: "businessId and date required" }); return; }
   const biz = await verifyBusiness(Number(businessId), req.userId!);
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
 
-  const computedMiles = odometerEnd && odometerStart
-    ? Number(odometerEnd) - Number(odometerStart)
-    : null;
+  const computedMiles = odometerEnd && odometerStart ? Number(odometerEnd) - Number(odometerStart) : null;
 
   const [log] = await db.insert(mileageLogsTable).values({
     businessId: Number(businessId),
     vehicleId: vehicleId ? Number(vehicleId) : null,
     jobId: jobId ? Number(jobId) : null,
-    driverName: driverName || null,
-    date,
-    startLocation: startLocation || null,
-    endLocation: endLocation || null,
-    odometerStart: odometerStart || null,
-    odometerEnd: odometerEnd || null,
+    driverName: driverName || null, date,
+    startLocation: startLocation || null, endLocation: endLocation || null,
+    odometerStart: odometerStart || null, odometerEnd: odometerEnd || null,
     miles: computedMiles !== null ? String(computedMiles) : null,
     purpose: purpose || null,
     tripType: tripType || "business",
@@ -253,37 +365,39 @@ router.post("/mileage-logs", async (req: AuthRequest, res): Promise<void> => {
   res.status(201).json(log);
 });
 
-// PATCH /api/mileage-logs/:id
-router.patch("/mileage-logs/:id", async (req: AuthRequest, res): Promise<void> => {
+// ── PATCH /api/mileage/:id ────────────────────────────────────────────────────
+router.patch("/mileage/:id", async (req: AuthRequest, res): Promise<void> => {
   const log = await verifyMileageLog(Number(req.params.id), req.userId!);
   if (!log) { res.status(404).json({ error: "Mileage log not found" }); return; }
 
   const { vehicleId, jobId, driverName, date, startLocation, endLocation, odometerStart, odometerEnd, purpose, tripType, notes } = req.body;
+  const u: Partial<typeof mileageLogsTable.$inferInsert> = {};
+  if (vehicleId      !== undefined) u.vehicleId      = vehicleId ? Number(vehicleId) : null;
+  if (jobId          !== undefined) u.jobId          = jobId ? Number(jobId) : null;
+  if (driverName     !== undefined) u.driverName     = driverName || null;
+  if (date           !== undefined) u.date           = date;
+  if (startLocation  !== undefined) u.startLocation  = startLocation || null;
+  if (endLocation    !== undefined) u.endLocation    = endLocation || null;
+  if (odometerStart  !== undefined) u.odometerStart  = odometerStart || null;
+  if (odometerEnd    !== undefined) u.odometerEnd    = odometerEnd || null;
+  if (purpose        !== undefined) u.purpose        = purpose || null;
+  if (tripType       !== undefined) u.tripType       = tripType || "business";
+  if (notes          !== undefined) u.notes          = notes || null;
 
-  const updates: Partial<typeof mileageLogsTable.$inferInsert> = {};
-  if (vehicleId !== undefined) updates.vehicleId = vehicleId ? Number(vehicleId) : null;
-  if (jobId !== undefined) updates.jobId = jobId ? Number(jobId) : null;
-  if (driverName !== undefined) updates.driverName = driverName || null;
-  if (date !== undefined) updates.date = date;
-  if (startLocation !== undefined) updates.startLocation = startLocation || null;
-  if (endLocation !== undefined) updates.endLocation = endLocation || null;
-  if (odometerStart !== undefined) updates.odometerStart = odometerStart || null;
-  if (odometerEnd !== undefined) updates.odometerEnd = odometerEnd || null;
-  if (purpose !== undefined) updates.purpose = purpose || null;
-  if (tripType !== undefined) updates.tripType = tripType || "business";
-  if (notes !== undefined) updates.notes = notes || null;
+  // Recompute miles when odometer values change
+  if (odometerStart !== undefined || odometerEnd !== undefined) {
+    const [cur] = await db.select().from(mileageLogsTable).where(eq(mileageLogsTable.id, log.id)).limit(1);
+    const s = odometerStart !== undefined ? odometerStart : cur?.odometerStart;
+    const e = odometerEnd   !== undefined ? odometerEnd   : cur?.odometerEnd;
+    if (s && e) u.miles = String(Number(e) - Number(s));
+  }
 
-  // Recompute miles if odometer values change
-  const start = odometerStart ?? (await db.select().from(mileageLogsTable).where(eq(mileageLogsTable.id, log.id)).limit(1))[0]?.odometerStart;
-  const end = odometerEnd ?? (await db.select().from(mileageLogsTable).where(eq(mileageLogsTable.id, log.id)).limit(1))[0]?.odometerEnd;
-  if (start && end) updates.miles = String(Number(end) - Number(start));
-
-  const [updated] = await db.update(mileageLogsTable).set(updates).where(eq(mileageLogsTable.id, log.id)).returning();
+  const [updated] = await db.update(mileageLogsTable).set(u).where(eq(mileageLogsTable.id, log.id)).returning();
   res.json(updated);
 });
 
-// DELETE /api/mileage-logs/:id
-router.delete("/mileage-logs/:id", async (req: AuthRequest, res): Promise<void> => {
+// ── DELETE /api/mileage/:id ───────────────────────────────────────────────────
+router.delete("/mileage/:id", async (req: AuthRequest, res): Promise<void> => {
   const log = await verifyMileageLog(Number(req.params.id), req.userId!);
   if (!log) { res.status(404).json({ error: "Mileage log not found" }); return; }
   await db.delete(mileageLogsTable).where(eq(mileageLogsTable.id, log.id));
@@ -291,52 +405,102 @@ router.delete("/mileage-logs/:id", async (req: AuthRequest, res): Promise<void> 
 });
 
 // ══════════════════════════════════════════════════════════════
-// FUEL LOGS
+// FUEL  — all static routes BEFORE /:id
 // ══════════════════════════════════════════════════════════════
 
-// GET /api/fuel-logs/summary?businessId=X[&year=Y] — STATIC before /:id
-router.get("/fuel-logs/summary", async (req: AuthRequest, res): Promise<void> => {
+// ── GET /api/fuel/report/ifta?businessId=X&year=Y[&quarter=Q] ────────────────
+router.get("/fuel/report/ifta", async (req: AuthRequest, res): Promise<void> => {
   const businessId = parseInt(req.query.businessId as string);
   if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
   const biz = await verifyBusiness(businessId, req.userId!);
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
 
-  const year = req.query.year ? parseInt(req.query.year as string) : null;
+  const year    = req.query.year    ? parseInt(req.query.year    as string) : new Date().getFullYear();
+  const quarter = req.query.quarter ? parseInt(req.query.quarter as string) : null;
+
+  // Date range for filtering
+  let startDate: string, endDate: string;
+  if (quarter && QUARTERS[quarter]) {
+    const months = QUARTERS[quarter];
+    const firstMonth = String(months[0]).padStart(2, "0");
+    const lastMonth  = String(months[months.length - 1]).padStart(2, "0");
+    startDate = `${year}-${firstMonth}-01`;
+    endDate   = `${year}-${lastMonth}-31`;
+  } else {
+    startDate = `${year}-01-01`;
+    endDate   = `${year}-12-31`;
+  }
 
   const rows = await db
     .select({
-      vehicleId: fuelLogsTable.vehicleId,
+      log: fuelLogsTable,
       vehicleName: vehiclesTable.name,
-      state: fuelLogsTable.state,
-      fuelType: fuelLogsTable.fuelType,
-      totalGallons: sql<number>`coalesce(sum(${fuelLogsTable.gallons}), 0)`,
-      totalAmount: sql<number>`coalesce(sum(${fuelLogsTable.totalAmount}), 0)`,
-      logCount: sql<number>`count(*)`,
+      vehicleLicensePlate: vehiclesTable.licensePlate,
     })
     .from(fuelLogsTable)
     .leftJoin(vehiclesTable, eq(fuelLogsTable.vehicleId, vehiclesTable.id))
-    .where(eq(fuelLogsTable.businessId, businessId))
-    .groupBy(fuelLogsTable.vehicleId, vehiclesTable.name, fuelLogsTable.state, fuelLogsTable.fuelType);
+    .where(and(
+      eq(fuelLogsTable.businessId, businessId),
+      gte(fuelLogsTable.date, startDate),
+      lte(fuelLogsTable.date, endDate),
+    ))
+    .orderBy(fuelLogsTable.state, fuelLogsTable.date);
 
-  const filtered = year
-    ? rows // state-level grouping doesn't have date range; summarize outside
-    : rows;
+  // Group by state
+  const stateMap = new Map<string, { state: string; gallons: number; iftaGallons: number; totalAmount: number; entries: number }>();
+  for (const r of rows) {
+    const state = r.log.state || "Unknown";
+    if (!stateMap.has(state)) stateMap.set(state, { state, gallons: 0, iftaGallons: 0, totalAmount: 0, entries: 0 });
+    const e = stateMap.get(state)!;
+    e.gallons += n(r.log.gallons);
+    if (r.log.iftaReportable) e.iftaGallons += n(r.log.gallons);
+    e.totalAmount += n(r.log.totalAmount);
+    e.entries++;
+  }
 
-  const totalGallons = filtered.reduce((s, r) => s + n(r.totalGallons), 0);
-  const totalAmount = filtered.reduce((s, r) => s + n(r.totalAmount), 0);
+  // Group by vehicle
+  const vehicleMap = new Map<number | null, { vehicleId: number | null; vehicleName: string | null; licensePlate: string | null; gallons: number; iftaGallons: number; totalAmount: number; states: string[] }>();
+  for (const r of rows) {
+    const key = r.log.vehicleId;
+    if (!vehicleMap.has(key)) vehicleMap.set(key, { vehicleId: key, vehicleName: r.vehicleName, licensePlate: r.vehicleLicensePlate, gallons: 0, iftaGallons: 0, totalAmount: 0, states: [] });
+    const e = vehicleMap.get(key)!;
+    e.gallons += n(r.log.gallons);
+    if (r.log.iftaReportable) e.iftaGallons += n(r.log.gallons);
+    e.totalAmount += n(r.log.totalAmount);
+    if (r.log.state && !e.states.includes(r.log.state)) e.states.push(r.log.state);
+  }
 
-  res.json({ summary: filtered, totalGallons, totalAmount });
+  const allGallons     = rows.reduce((s, r) => s + n(r.log.gallons), 0);
+  const iftaGallons    = rows.filter((r) => r.log.iftaReportable).reduce((s, r) => s + n(r.log.gallons), 0);
+  const totalAmount    = rows.reduce((s, r) => s + n(r.log.totalAmount), 0);
+  const avgPpg         = allGallons > 0 ? totalAmount / allGallons : 0;
+
+  res.json({
+    year,
+    quarter: quarter ? `Q${quarter}` : "Full Year",
+    startDate,
+    endDate,
+    businessName: biz.name,
+    totalGallons: allGallons,
+    iftaGallons,
+    totalAmount,
+    avgPricePerGallon: avgPpg,
+    entryCount: rows.length,
+    byState: Array.from(stateMap.values()).sort((a, b) => b.iftaGallons - a.iftaGallons),
+    byVehicle: Array.from(vehicleMap.values()).sort((a, b) => b.gallons - a.gallons),
+    note: "IFTA requires reporting taxable miles driven and fuel purchased in each jurisdiction. Use this data to prepare your quarterly IFTA return.",
+  });
 });
 
-// GET /api/fuel-logs?businessId=X[&vehicleId=Y&year=Z]
-router.get("/fuel-logs", async (req: AuthRequest, res): Promise<void> => {
+// ── GET /api/fuel?businessId=X[&vehicleId=Y&year=Z] ──────────────────────────
+router.get("/fuel", async (req: AuthRequest, res): Promise<void> => {
   const businessId = parseInt(req.query.businessId as string);
   if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
   const biz = await verifyBusiness(businessId, req.userId!);
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
 
   const vehicleId = req.query.vehicleId ? parseInt(req.query.vehicleId as string) : null;
-  const year = req.query.year ? parseInt(req.query.year as string) : null;
+  const year      = req.query.year      ? parseInt(req.query.year as string)      : null;
 
   const rows = await db
     .select({
@@ -353,28 +517,17 @@ router.get("/fuel-logs", async (req: AuthRequest, res): Promise<void> => {
     .orderBy(desc(fuelLogsTable.date));
 
   const filtered = year ? rows.filter((r) => r.log.date.startsWith(String(year))) : rows;
-
-  const logs = filtered.map((r) => ({
-    ...r.log,
-    vehicleName: r.vehicleName,
-    vehicleLicensePlate: r.vehicleLicensePlate,
-  }));
+  const logs = filtered.map((r) => ({ ...r.log, vehicleName: r.vehicleName, vehicleLicensePlate: r.vehicleLicensePlate }));
 
   const totalGallons = logs.reduce((s, l) => s + n(l.gallons), 0);
-  const totalAmount = logs.reduce((s, l) => s + n(l.totalAmount), 0);
-  const avgPricePerGallon = totalGallons > 0 ? totalAmount / totalGallons : 0;
+  const totalAmount  = logs.reduce((s, l) => s + n(l.totalAmount), 0);
 
-  res.json({ logs, totalGallons, totalAmount, avgPricePerGallon });
+  res.json({ logs, totalGallons, totalAmount, avgPricePerGallon: totalGallons > 0 ? totalAmount / totalGallons : 0 });
 });
 
-// POST /api/fuel-logs
-router.post("/fuel-logs", async (req: AuthRequest, res): Promise<void> => {
-  const {
-    businessId, vehicleId, jobId, transactionId, date,
-    stationName, state, gallons, pricePerGallon, totalAmount,
-    odometer, fuelType, receiptId, iftaReportable, notes,
-  } = req.body;
-
+// ── POST /api/fuel ────────────────────────────────────────────────────────────
+router.post("/fuel", async (req: AuthRequest, res): Promise<void> => {
+  const { businessId, vehicleId, jobId, transactionId, date, stationName, state, gallons, pricePerGallon, totalAmount, odometer, fuelType, receiptId, iftaReportable, notes } = req.body;
   if (!businessId || !date) { res.status(400).json({ error: "businessId and date required" }); return; }
   const biz = await verifyBusiness(Number(businessId), req.userId!);
   if (!biz) { res.status(404).json({ error: "Business not found" }); return; }
@@ -389,10 +542,8 @@ router.post("/fuel-logs", async (req: AuthRequest, res): Promise<void> => {
     jobId: jobId ? Number(jobId) : null,
     transactionId: transactionId ? Number(transactionId) : null,
     date,
-    stationName: stationName || null,
-    state: state || null,
-    gallons: gallons || null,
-    pricePerGallon: pricePerGallon || null,
+    stationName: stationName || null, state: state || null,
+    gallons: gallons || null, pricePerGallon: pricePerGallon || null,
     totalAmount: computedTotal,
     odometer: odometer || null,
     fuelType: fuelType || "diesel",
@@ -403,37 +554,35 @@ router.post("/fuel-logs", async (req: AuthRequest, res): Promise<void> => {
   res.status(201).json(log);
 });
 
-// PATCH /api/fuel-logs/:id
-router.patch("/fuel-logs/:id", async (req: AuthRequest, res): Promise<void> => {
+// ── PATCH /api/fuel/:id ───────────────────────────────────────────────────────
+router.patch("/fuel/:id", async (req: AuthRequest, res): Promise<void> => {
   const log = await verifyFuelLog(Number(req.params.id), req.userId!);
   if (!log) { res.status(404).json({ error: "Fuel log not found" }); return; }
 
   const { vehicleId, jobId, date, stationName, state, gallons, pricePerGallon, totalAmount, odometer, fuelType, iftaReportable, notes } = req.body;
-  const updates: Partial<typeof fuelLogsTable.$inferInsert> = {};
-  if (vehicleId !== undefined) updates.vehicleId = vehicleId ? Number(vehicleId) : null;
-  if (jobId !== undefined) updates.jobId = jobId ? Number(jobId) : null;
-  if (date !== undefined) updates.date = date;
-  if (stationName !== undefined) updates.stationName = stationName || null;
-  if (state !== undefined) updates.state = state || null;
-  if (gallons !== undefined) updates.gallons = gallons || null;
-  if (pricePerGallon !== undefined) updates.pricePerGallon = pricePerGallon || null;
-  if (totalAmount !== undefined) updates.totalAmount = totalAmount || null;
-  if (odometer !== undefined) updates.odometer = odometer || null;
-  if (fuelType !== undefined) updates.fuelType = fuelType;
-  if (iftaReportable !== undefined) updates.iftaReportable = Boolean(iftaReportable);
-  if (notes !== undefined) updates.notes = notes || null;
+  const u: Partial<typeof fuelLogsTable.$inferInsert> = {};
+  if (vehicleId      !== undefined) u.vehicleId      = vehicleId ? Number(vehicleId) : null;
+  if (jobId          !== undefined) u.jobId          = jobId ? Number(jobId) : null;
+  if (date           !== undefined) u.date           = date;
+  if (stationName    !== undefined) u.stationName    = stationName || null;
+  if (state          !== undefined) u.state          = state || null;
+  if (gallons        !== undefined) u.gallons        = gallons || null;
+  if (pricePerGallon !== undefined) u.pricePerGallon = pricePerGallon || null;
+  if (totalAmount    !== undefined) u.totalAmount    = totalAmount || null;
+  if (odometer       !== undefined) u.odometer       = odometer || null;
+  if (fuelType       !== undefined) u.fuelType       = fuelType;
+  if (iftaReportable !== undefined) u.iftaReportable = Boolean(iftaReportable);
+  if (notes          !== undefined) u.notes          = notes || null;
 
-  // Auto-compute total if both gallons and rate are known
-  const g = gallons ?? null;
-  const p = pricePerGallon ?? null;
-  if (g && p) updates.totalAmount = String(Number(g) * Number(p));
+  // Auto-compute total if both gallons and price are given
+  if (gallons && pricePerGallon) u.totalAmount = String(Number(gallons) * Number(pricePerGallon));
 
-  const [updated] = await db.update(fuelLogsTable).set(updates).where(eq(fuelLogsTable.id, log.id)).returning();
+  const [updated] = await db.update(fuelLogsTable).set(u).where(eq(fuelLogsTable.id, log.id)).returning();
   res.json(updated);
 });
 
-// DELETE /api/fuel-logs/:id
-router.delete("/fuel-logs/:id", async (req: AuthRequest, res): Promise<void> => {
+// ── DELETE /api/fuel/:id ──────────────────────────────────────────────────────
+router.delete("/fuel/:id", async (req: AuthRequest, res): Promise<void> => {
   const log = await verifyFuelLog(Number(req.params.id), req.userId!);
   if (!log) { res.status(404).json({ error: "Fuel log not found" }); return; }
   await db.delete(fuelLogsTable).where(eq(fuelLogsTable.id, log.id));
