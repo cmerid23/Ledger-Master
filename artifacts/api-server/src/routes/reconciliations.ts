@@ -100,10 +100,11 @@ router.post("/businesses/:businessId/reconciliations", async (req: AuthRequest, 
     .values({
       businessId: params.data.businessId,
       bankAccountName: parsed.data.bankAccountName,
-      statementDate: parsed.data.statementDate,
+      periodStart: parsed.data.periodStart,
+      periodEnd: parsed.data.periodEnd,
       openingBalance: String(parsed.data.openingBalance),
       closingBalance: String(parsed.data.closingBalance),
-      status: "pending",
+      status: "draft",
     })
     .returning();
 
@@ -139,11 +140,7 @@ router.post("/businesses/:businessId/reconciliations/:reconciliationId/run", asy
     return;
   }
 
-  // Update status to in_progress
-  await db
-    .update(reconciliationsTable)
-    .set({ status: "in_progress" })
-    .where(eq(reconciliationsTable.id, reconciliation.id));
+  // Keep status as draft while running
 
   // Get unreconciled bank transactions
   const bankTxns = await db
@@ -275,7 +272,7 @@ router.post("/businesses/:businessId/reconciliations/:reconciliationId/complete"
 
   const [reconciliation] = await db
     .update(reconciliationsTable)
-    .set({ status: "completed" })
+    .set({ status: "complete", completedAt: new Date() })
     .where(and(eq(reconciliationsTable.id, params.data.reconciliationId), eq(reconciliationsTable.businessId, params.data.businessId)))
     .returning();
 

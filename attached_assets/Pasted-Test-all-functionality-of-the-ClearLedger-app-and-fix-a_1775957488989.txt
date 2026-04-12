@@ -1,0 +1,138 @@
+Test all functionality of the ClearLedger app and fix any bugs found. Go through each feature below one by one, check if it works, and fix anything broken before moving to the next.
+
+1. AUTH
+
+Sign up with a new email and password — confirm user is saved to DB and JWT token is returned
+Log in with same credentials — confirm redirect to dashboard
+Try wrong password — confirm error message shows
+Refresh page — confirm user stays logged in (token persisted)
+Log out — confirm redirect to login page and token is cleared
+
+
+2. BUSINESS SETUP
+
+Create a new business called "Test Business 1" with currency USD
+Create a second business called "Test Business 2"
+Switch between businesses using the business switcher in the nav
+Confirm each business has its own isolated data (transactions from Business 1 do not appear in Business 2)
+
+
+3. CHART OF ACCOUNTS
+
+Confirm a default chart of accounts is pre-loaded when a business is created
+Add a new account: name "Test Expense", type "Expense", under parent "Operating Expenses"
+Edit the account name to "Office Test Expense"
+Archive the account and confirm it no longer appears in active account lists
+Confirm accounts are grouped correctly: Assets, Liabilities, Equity, Income, Expenses
+
+
+4. MANUAL TRANSACTIONS
+
+Add a manual income transaction: date today, description "Test Sale", amount $500, account "Sales Revenue"
+Add a manual expense transaction: date today, description "Office Supplies Purchase", amount $75, account "Office Test Expense"
+Confirm both appear in the transaction list with correct date, description, and amount
+Edit the $75 transaction and change amount to $80 — confirm it updates
+Delete the $80 transaction — confirm it is removed
+
+
+5. CSV STATEMENT UPLOAD
+
+Create a test CSV file with these exact contents and upload it:
+
+Date,Description,Debit,Credit
+2025-01-15,Amazon Office Supplies,120.00,
+2025-01-18,Client Payment Received,,2500.00
+2025-01-22,Google Ads,350.00,
+2025-01-28,Rent Payment,1200.00,
+
+Confirm the parser reads all 4 rows correctly in the preview screen
+Confirm import creates 4 transactions in the transaction list
+Confirm debit rows are treated as expenses and credit rows as income
+
+
+6. RECONCILIATION
+
+After importing the CSV above, go to the Reconcile page
+Run auto-reconciliation for January 2025
+Confirm the engine attempts to match bank transactions against journal entries
+Confirm the summary shows: Auto-reconciled count, Needs Review count, Unmatched count
+On a "Needs Review" item, click Confirm Match — confirm status updates to reconciled
+On an Unmatched item, click "Create Journal Entry" — confirm it creates one and links it
+Confirm reconciled transactions show a reconciled badge in the transaction list
+
+
+7. RECEIPT ATTACHMENT
+
+Click on the "Office Supplies Purchase" transaction to open the ReceiptDrawer
+Upload a test image file (any JPG or PNG) as a receipt
+Confirm the file uploads successfully and thumbnail appears in the drawer
+Fill in: vendor name "Amazon", receipt amount $120, receipt date, category "Office Supplies", notes "Q1 supplies", tax deductible ON
+Save and confirm all metadata is stored
+Confirm the transaction row now shows a green paperclip icon
+Click the thumbnail to open a full preview
+Delete the receipt and confirm it is removed and paperclip goes grey
+Re-upload the receipt (needed for tax export test below)
+Test the "Missing receipt" filter — confirm it shows only expense transactions without receipts
+
+
+8. FINANCIAL REPORTS
+
+Go to Reports and generate a Profit & Loss for January 2025
+Confirm it shows total income, total expenses, and net profit calculated correctly
+Generate a Balance Sheet — confirm assets = liabilities + equity
+Change date range to full year 2025 — confirm report updates
+Export P&L as PDF — confirm the file downloads and opens correctly
+Export P&L as CSV — confirm the file downloads with correct columns
+
+
+9. TAX YEAR-END EXPORT
+
+Go to the Tax Export page
+Select year 2025
+Confirm the summary table shows category totals and tax-deductible totals
+Confirm it shows how many transactions are missing receipts
+Click "Download Tax Pack (ZIP)" — confirm the ZIP downloads and contains:
+
+summary.csv
+receipts-index.csv
+/receipts/ folder with uploaded receipt files
+profit-loss.pdf
+balance-sheet.pdf
+
+
+Confirm receipt files inside the ZIP are renamed correctly as YYYY-MM-DD_vendor_$amount format
+
+
+10. DASHBOARD
+
+Go to the Dashboard and confirm it shows:
+
+Total Revenue card with correct number
+Total Expenses card with correct number
+Net Profit card (revenue minus expenses)
+Cash Balance card
+Revenue vs Expenses line chart for the last 12 months
+Recent transactions list (last 5-10 transactions)
+Reconciliation status badge (up to date or needs review)
+
+
+Confirm all numbers match what was entered in the tests above
+
+
+11. EDGE CASES — fix all of these
+
+Try uploading a CSV with missing columns — confirm a clear error message shows, app does not crash
+Try uploading a receipt file larger than 10MB — confirm it is rejected with a size error
+Try uploading an unsupported file type (e.g. .exe) as a receipt — confirm it is rejected
+Try creating a journal entry where debits do not equal credits — confirm validation error
+Try accessing /dashboard without being logged in — confirm redirect to login
+Try switching to Business 2 and confirm none of Business 1's transactions are visible
+Confirm all currency amounts display with 2 decimal places throughout the app
+Confirm all date fields display consistently in DD/MM/YYYY or MM/DD/YYYY format (pick one and apply everywhere)
+
+
+After completing all tests, give me a summary of:
+
+What passed
+What was broken and how you fixed it
+Anything that could not be fixed and why

@@ -51,7 +51,7 @@ export default function UploadPage({ businessId }: Props) {
     setError("");
     try {
       const result = await uploadCsv.mutateAsync({
-        params: { businessId },
+        businessId,
         data: { csvContent },
       });
       setParsed(result.transactions as ParsedTx[]);
@@ -66,7 +66,7 @@ export default function UploadPage({ businessId }: Props) {
     setError("");
     try {
       const result = await confirmUpload.mutateAsync({
-        params: { businessId },
+        businessId,
         data: {
           transactions: parsed,
           accountId: selectedAccount ? Number(selectedAccount) : null,

@@ -400,10 +400,16 @@ export const ListReconciliationsResponseItem = zod.object({
   id: zod.number(),
   businessId: zod.number(),
   bankAccountName: zod.string(),
-  statementDate: zod.string(),
+  periodStart: zod.string(),
+  periodEnd: zod.string(),
   openingBalance: zod.number(),
   closingBalance: zod.number(),
-  status: zod.enum(["pending", "in_progress", "completed"]),
+  difference: zod.number().nullable().optional(),
+  autoMatchedCount: zod.number().optional(),
+  reviewCount: zod.number().optional(),
+  unmatchedCount: zod.number().optional(),
+  status: zod.enum(["draft", "complete", "pending", "in_progress", "completed"]),
+  completedAt: zod.string().nullable().optional(),
   createdAt: zod.string(),
 });
 export const ListReconciliationsResponse = zod.array(
@@ -419,7 +425,8 @@ export const CreateReconciliationParams = zod.object({
 
 export const CreateReconciliationBody = zod.object({
   bankAccountName: zod.string(),
-  statementDate: zod.string(),
+  periodStart: zod.string(),
+  periodEnd: zod.string(),
   openingBalance: zod.number(),
   closingBalance: zod.number(),
 });
@@ -523,10 +530,13 @@ export const CompleteReconciliationResponse = zod.object({
   id: zod.number(),
   businessId: zod.number(),
   bankAccountName: zod.string(),
-  statementDate: zod.string(),
+  periodStart: zod.string(),
+  periodEnd: zod.string(),
   openingBalance: zod.number(),
   closingBalance: zod.number(),
-  status: zod.enum(["pending", "in_progress", "completed"]),
+  difference: zod.number().nullable().optional(),
+  status: zod.enum(["draft", "complete", "pending", "in_progress", "completed"]),
+  completedAt: zod.string().nullable().optional(),
   createdAt: zod.string(),
 });
 

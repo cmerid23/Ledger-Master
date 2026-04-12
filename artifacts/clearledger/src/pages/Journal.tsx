@@ -72,7 +72,7 @@ export default function JournalPage({ businessId }: Props) {
     }
     try {
       await createEntry.mutateAsync({
-        params: { businessId },
+        businessId,
         data: {
           date: form.date,
           memo: form.memo || null,

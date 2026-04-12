@@ -51,13 +51,17 @@ interface ReconciliationResult {
   };
 }
 
-const STATUS_ICONS = {
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  draft: <Clock className="w-4 h-4 text-amber-500" />,
+  complete: <CheckCircle className="w-4 h-4 text-emerald-500" />,
   pending: <Clock className="w-4 h-4 text-amber-500" />,
   in_progress: <AlertCircle className="w-4 h-4 text-blue-500" />,
   completed: <CheckCircle className="w-4 h-4 text-emerald-500" />,
 };
 
-const STATUS_LABELS = {
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  complete: "Complete",
   pending: "Pending",
   in_progress: "In Progress",
   completed: "Completed",
@@ -78,7 +82,8 @@ export default function ReconcilePage({ businessId }: Props) {
   const [result, setResult] = useState<ReconciliationResult | null>(null);
   const [form, setForm] = useState({
     bankAccountName: "",
-    statementDate: today(),
+    periodStart: today(),
+    periodEnd: today(),
     openingBalance: "",
     closingBalance: "",
   });
@@ -96,14 +101,15 @@ export default function ReconcilePage({ businessId }: Props) {
         businessId,
         data: {
           bankAccountName: form.bankAccountName,
-          statementDate: form.statementDate,
+          periodStart: form.periodStart,
+          periodEnd: form.periodEnd,
           openingBalance: parseFloat(form.openingBalance),
           closingBalance: parseFloat(form.closingBalance),
         },
       });
       invalidate();
       setShowForm(false);
-      setForm({ bankAccountName: "", statementDate: today(), openingBalance: "", closingBalance: "" });
+      setForm({ bankAccountName: "", periodStart: today(), periodEnd: today(), openingBalance: "", closingBalance: "" });
     } catch (err: unknown) {
       const e = err as { data?: { error?: string }; message?: string };
       setError(e?.data?.error || e?.message || "Error creating reconciliation");
@@ -159,11 +165,15 @@ export default function ReconcilePage({ businessId }: Props) {
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Statement date</label>
-              <input type="date" value={form.statementDate} onChange={(e) => setForm({ ...form, statementDate: e.target.value })} required
+              <label className="block text-xs font-medium text-foreground mb-1">Period start</label>
+              <input type="date" value={form.periodStart} onChange={(e) => setForm({ ...form, periodStart: e.target.value })} required
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
-            <div></div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">Period end</label>
+              <input type="date" value={form.periodEnd} onChange={(e) => setForm({ ...form, periodEnd: e.target.value })} required
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+            </div>
             <div>
               <label className="block text-xs font-medium text-foreground mb-1">Opening balance</label>
               <input type="number" step="0.01" value={form.openingBalance} onChange={(e) => setForm({ ...form, openingBalance: e.target.value })} required placeholder="0.00"
@@ -320,7 +330,7 @@ export default function ReconcilePage({ businessId }: Props) {
                   <div>
                     <div className="font-medium text-sm text-foreground">{rec.bankAccountName}</div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      Statement: {formatDate(rec.statementDate)} · {STATUS_LABELS[rec.status as keyof typeof STATUS_LABELS]}
+                      {formatDate(rec.periodStart)} – {formatDate(rec.periodEnd)} · {STATUS_LABELS[rec.status] ?? rec.status}
                     </div>
                   </div>
                 </div>

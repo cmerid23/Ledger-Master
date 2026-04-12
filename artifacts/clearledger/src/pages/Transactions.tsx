@@ -112,7 +112,7 @@ export default function TransactionsPage({ businessId }: Props) {
     setError("");
     try {
       await createTransaction.mutateAsync({
-        params: { businessId },
+        businessId,
         data: {
           date: form.date,
           description: form.description,
@@ -133,14 +133,14 @@ export default function TransactionsPage({ businessId }: Props) {
 
   async function handleDelete(id: number) {
     if (!confirm("Delete this transaction?")) return;
-    await deleteTransaction.mutateAsync({ params: { businessId, transactionId: id } });
+    await deleteTransaction.mutateAsync({ businessId, transactionId: id });
     invalidate();
   }
 
   async function handleBulkCategorize() {
     if (!bulkAccountId || selected.length === 0) return;
     await bulkCategorize.mutateAsync({
-      params: { businessId },
+      businessId,
       data: { transactionIds: selected, accountId: Number(bulkAccountId) },
     });
     setSelected([]);

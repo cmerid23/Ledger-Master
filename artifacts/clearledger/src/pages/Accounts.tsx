@@ -78,9 +78,9 @@ export default function AccountsPage({ businessId }: Props) {
     };
     try {
       if (editingId) {
-        await updateAccount.mutateAsync({ params: { businessId, accountId: editingId }, data });
+        await updateAccount.mutateAsync({ businessId, accountId: editingId, data });
       } else {
-        await createAccount.mutateAsync({ params: { businessId }, data });
+        await createAccount.mutateAsync({ businessId, data });
       }
       invalidate();
       resetForm();
@@ -92,12 +92,12 @@ export default function AccountsPage({ businessId }: Props) {
 
   async function handleDelete(accountId: number) {
     if (!confirm("Archive this account?")) return;
-    await deleteAccount.mutateAsync({ params: { businessId, accountId } });
+    await deleteAccount.mutateAsync({ businessId, accountId });
     invalidate();
   }
 
   async function handleRestore(accountId: number) {
-    await updateAccount.mutateAsync({ params: { businessId, accountId }, data: { isActive: true } });
+    await updateAccount.mutateAsync({ businessId, accountId, data: { isActive: true } });
     invalidate();
   }
 

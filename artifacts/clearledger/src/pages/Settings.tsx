@@ -44,7 +44,7 @@ export default function SettingsPage({ businessId, onBusinessChange }: Props) {
     setError("");
     try {
       await updateBusiness.mutateAsync({
-        params: { businessId },
+        businessId,
         data: form,
       });
       queryClient.invalidateQueries({ queryKey: getGetBusinessQueryKey(businessId) });
@@ -73,7 +73,7 @@ export default function SettingsPage({ businessId, onBusinessChange }: Props) {
 
   async function handleDeleteBusiness(id: number) {
     if (!confirm("Delete this business and all its data? This cannot be undone.")) return;
-    await deleteBusiness.mutateAsync({ params: { businessId: id } });
+    await deleteBusiness.mutateAsync({ businessId: id });
     queryClient.invalidateQueries({ queryKey: getListBusinessesQueryKey() });
     if (id === businessId) {
       const remaining = businesses?.filter((b) => b.id !== id);
