@@ -35,6 +35,9 @@ import JobsPage from "@/pages/Jobs";
 import VendorsPage from "@/pages/Vendors";
 import BillsPage from "@/pages/Bills";
 import FleetPage from "@/pages/Fleet";
+import InstallPage from "@/pages/Install";
+import { InstallPrompt } from "@/components/InstallPrompt";
+import { UpdateBanner } from "@/components/UpdateBanner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -159,6 +162,7 @@ function Router() {
       <Route path="/register" component={RegisterPage} />
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password/:token" component={ResetPasswordPage} />
+      <Route path="/install" component={InstallPage} />
       <Route path="/admin/login">
         <Redirect to="/login" />
       </Route>
@@ -179,9 +183,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <UpdateBanner />
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <Router />
         </WouterRouter>
+        <InstallPrompt />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

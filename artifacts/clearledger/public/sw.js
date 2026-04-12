@@ -21,6 +21,11 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// Allow main thread to trigger skip-waiting (for UpdateBanner)
+self.addEventListener("message", (e) => {
+  if (e.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
@@ -47,6 +52,37 @@ self.addEventListener("fetch", (e) => {
         }
         return res;
       });
+    })
+  );
+});
+
+// ── Push notifications ────────────────────────────────────────────────────────
+self.addEventListener("push", (e) => {
+  let data = { title: "ClearLedger", body: "You have a new notification", icon: "/icons/icon-192x192.png", url: "/dashboard" };
+  try {
+    if (e.data) data = { ...data, ...e.data.json() };
+  } catch { /* ignore parse errors */ }
+
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon,
+      badge: "/icons/icon-96x96.png",
+      data: { url: data.url },
+      vibrate: [100, 50, 100],
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url ?? "/dashboard";
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (client.url.includes(url) && "focus" in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });

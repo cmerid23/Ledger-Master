@@ -20,6 +20,15 @@ export const passwordResetTokensTable = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const pushSubscriptionsTable = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;

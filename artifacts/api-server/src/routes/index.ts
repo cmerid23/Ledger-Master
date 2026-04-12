@@ -21,6 +21,7 @@ import jobsRouter from "./jobs";
 import vendorsRouter from "./vendors";
 import billsRouter from "./bills";
 import vehiclesRouter from "./vehicles";
+import pushRouter from "./push";
 
 const router: IRouter = Router();
 
@@ -46,5 +47,6 @@ router.use(jobsRouter);
 router.use(vendorsRouter);
 router.use(billsRouter);
 router.use(vehiclesRouter);
+router.use(pushRouter);
 
 export default router;

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import {
   useGetBusiness,
   useUpdateBusiness,
@@ -10,7 +11,8 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clearToken, clearBusinessId } from "@/lib/auth";
-import { Building2, Plus, Trash2 } from "lucide-react";
+import { Building2, Plus, Trash2, Bell, Smartphone } from "lucide-react";
+import { authFetch } from "@/lib/api";
 
 interface Props {
   businessId: number;
@@ -33,6 +35,56 @@ export default function SettingsPage({ businessId, onBusinessChange }: Props) {
   const [showNewBiz, setShowNewBiz] = useState(false);
   const [savedBiz, setSavedBiz] = useState(false);
   const [error, setError] = useState("");
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+
+  // Push notification support detection
+  useEffect(() => {
+    if ("serviceWorker" in navigator && "PushManager" in window) {
+      setPushSupported(true);
+      navigator.serviceWorker.ready.then((reg) => {
+        reg.pushManager.getSubscription().then((sub) => {
+          setPushEnabled(!!sub);
+        });
+      });
+    }
+  }, []);
+
+  async function handleTogglePush() {
+    if (pushLoading) return;
+    setPushLoading(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (pushEnabled) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await authFetch("/api/push/subscribe", {
+            method: "DELETE",
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+          await sub.unsubscribe();
+        }
+        setPushEnabled(false);
+      } else {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") { setPushLoading(false); return; }
+        const keyRes = await authFetch("/api/push/vapid-public-key");
+        const { publicKey } = await keyRes.json() as { publicKey: string };
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: publicKey,
+        });
+        const json = sub.toJSON();
+        await authFetch("/api/push/subscribe", {
+          method: "POST",
+          body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+        });
+        setPushEnabled(true);
+      }
+    } catch { /* permission denied or unsupported */ }
+    finally { setPushLoading(false); }
+  }
 
   // Initialize form from loaded business
   if (business && form.name === "" && !isLoading) {
@@ -156,6 +208,51 @@ export default function SettingsPage({ businessId, onBusinessChange }: Props) {
             </div>
           </form>
         )}
+      </div>
+
+      {/* Notifications */}
+      {pushSupported && (
+        <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm space-y-4">
+          <div className="flex items-center gap-2">
+            <Bell className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold text-foreground">Notifications</h2>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Overdue invoice alerts</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Get push notifications when invoices become overdue</p>
+            </div>
+            <button
+              onClick={handleTogglePush}
+              disabled={pushLoading}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${pushEnabled ? "bg-primary" : "bg-muted-foreground/30"}`}
+              aria-pressed={pushEnabled}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pushEnabled ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </div>
+          {pushEnabled && (
+            <p className="text-xs text-emerald-600 flex items-center gap-1">
+              <Bell className="w-3 h-3" /> Notifications enabled
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* App install */}
+      <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-2">
+          <Smartphone className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">Install App</h2>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Install ClearLedger on your phone for offline access and faster load times.
+        </p>
+        <Link href="/install"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
+          <Smartphone className="w-4 h-4" />
+          View install instructions
+        </Link>
       </div>
 
       {/* All businesses */}

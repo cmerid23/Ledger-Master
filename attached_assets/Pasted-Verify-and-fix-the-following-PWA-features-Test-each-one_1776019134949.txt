@@ -1,0 +1,18 @@
+Verify and fix the following PWA features. Test each one and fix anything not working:
+1. Custom install banner
+Check if InstallPrompt.jsx component exists and is imported in App.jsx. If not, build it — a bottom slide-up banner that appears after 30 seconds with "Install ClearLedger" text, an Install button for Android, and "Tap Share → Add to Home Screen" instructions for iOS. Store dismissal in localStorage so it only shows once.
+2. Offline data caching with IndexedDB
+Check if idb is installed and offlineDB.js exists in /client/src/utils/. If not, install idb and create it. When invoices, jobs, and transactions load successfully, cache them to IndexedDB. If the page loads offline, show cached data with a yellow "Offline — showing cached data" banner instead of a blank screen.
+3. Mobile bottom navigation
+Check if there is a bottom nav bar component that shows on screens under 768px. If not, create BottomNav.jsx with 5 tabs: Dashboard, Invoices, Jobs, Fleet, More. "More" opens a slide-up drawer with remaining nav links. Add it to App.jsx so it shows on all authenticated pages on mobile.
+4. Camera-first receipt upload on mobile
+Find the receipt upload input in ReceiptDrawer.jsx. Make sure it has capture="environment" and accept="image/*,application/pdf" so it opens the camera directly on mobile. Add a second button "Choose from gallery" that opens without capture.
+5. Push notifications
+Check if web-push is installed on the server and VAPID keys are in .env.example. If not, install web-push, generate VAPID keys, create the push_subscriptions table, and add subscribe/unsubscribe routes. Add a "Enable notifications" toggle in the Settings page. Send a push notification when an invoice becomes overdue.
+6. App update banner
+Check if UpdateBanner.jsx exists. If not, create it — listens for service worker updatefound event and shows a green top banner "A new version is available" with an "Update Now" button that reloads the page.
+7. iOS install instructions page
+Create a /install page with step by step instructions for iPhone (Safari share button flow) and Android (Chrome three dots menu flow). Add a link to this page in the Settings page and in the post-signup onboarding.
+8. Lighthouse audit
+Run a Lighthouse PWA audit on the app. Fix any issues until the PWA score is above 90. The app must pass: installable, service worker active, HTTPS, valid manifest, all icon sizes present, offline page works.
+After fixing each item, confirm it is working with a brief test description.

@@ -83,7 +83,7 @@ const EXPENSE_CATEGORIES = [
   "Other",
 ];
 
-const ACCEPT_TYPES = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+const ACCEPT_TYPES = "image/*,application/pdf";
 
 function isImageType(fileType: string | null) {
   return !!fileType?.startsWith("image/");
@@ -117,6 +117,7 @@ export default function ReceiptDrawer({
   const [error, setError] = useState("");
   const [lightboxReceipt, setLightboxReceipt] = useState<ReceiptRecord | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const authHeader = { Authorization: `Bearer ${getToken()}` };
 
@@ -349,15 +350,36 @@ export default function ReceiptDrawer({
                       </div>
                     </>
                   )}
+                  {/* Camera-first input (opens camera on mobile) */}
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept={ACCEPT_TYPES}
+                    capture="environment"
                     multiple
                     className="hidden"
-                    onChange={(e) => handleFiles(e.target.files)}
+                    onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+                  />
+                  {/* Gallery input (no capture — shows file picker / gallery) */}
+                  <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept={ACCEPT_TYPES}
+                    multiple
+                    className="hidden"
+                    onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
                   />
                 </div>
+
+                {/* Gallery button — mobile only, opens file picker instead of camera */}
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="mt-2 w-full flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-lg border border-border hover:bg-muted lg:hidden"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Choose from gallery
+                </button>
               </div>
 
               {/* ── Receipts section ── */}

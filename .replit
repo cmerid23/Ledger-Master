@@ -41,3 +41,10 @@ externalPort = 3003
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BOEegb8BYgCV8RSjZFVYWZeHpRJckED58ug5rmOxUtsQPiBj-BCVcBUOPictvZ7teu8e8u5ve4tv9DOSlhHcHOI"
+VAPID_PRIVATE_KEY = "yy8xw3fUSq24Wlan4nLmDZnmXyDpZgOCjDLjz2sUWT8"
+VAPID_EMAIL = "mailto:admin@clearledger.app"

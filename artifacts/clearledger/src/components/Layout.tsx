@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { BottomNav } from "./BottomNav";
 import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard,
@@ -318,8 +319,11 @@ export function Layout({ children, businessId, onBusinessChange }: LayoutProps) 
           <span className="ml-auto text-sm text-muted-foreground truncate">{currentBusiness?.name}</span>
         </div>
 
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto pb-safe-bottom lg:pb-0">
+          <div className="pb-16 lg:pb-0">{children}</div>
+        </main>
       </div>
+      <BottomNav />
     </div>
   );
 }
