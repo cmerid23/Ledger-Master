@@ -18,6 +18,8 @@ import customersRouter from "./customers";
 import invoicesRouter from "./invoices";
 import quotesRouter from "./quotes";
 import jobsRouter from "./jobs";
+import vendorsRouter from "./vendors";
+import billsRouter from "./bills";
 
 const router: IRouter = Router();
 
@@ -40,5 +42,7 @@ router.use(customersRouter);
 router.use(invoicesRouter);
 router.use(quotesRouter);
 router.use(jobsRouter);
+router.use(vendorsRouter);
+router.use(billsRouter);
 
 export default router;

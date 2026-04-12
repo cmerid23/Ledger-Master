@@ -22,6 +22,8 @@ import {
   Users,
   ClipboardList,
   Briefcase,
+  Store,
+  FileCheck,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -44,6 +46,8 @@ const navItems = [
   { path: "/invoices", label: "Invoices", icon: FileText },
   { path: "/quotes", label: "Quotes", icon: ClipboardList },
   { path: "/jobs", label: "Jobs", icon: Briefcase },
+  { path: "/vendors", label: "Vendors", icon: Store },
+  { path: "/bills", label: "Bills (AP)", icon: FileCheck },
   { path: "/accounts", label: "Chart of Accounts", icon: BookOpen },
   { path: "/transactions", label: "Transactions", icon: CreditCard },
   { path: "/journal", label: "Journal Entries", icon: ScrollText },
