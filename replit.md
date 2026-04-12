@@ -15,6 +15,8 @@ ClearLedger is a full-stack, multi-business accounting web application built as 
 - **CSV Upload** — smart import of bank statements with auto-detect of date/amount columns
 - **Dashboard** — summary cards (revenue, expenses, net profit, cash balance) + revenue vs expenses chart (Recharts)
 - **Settings** — update business name, currency, fiscal year start; manage multiple businesses
+- **Receipts** — upload receipts (multipart via `POST /api/receipts/upload`), attach to transactions, manage metadata (vendor, amount, date, category, notes, tax-deductible flag), ZIP export by tax year
+- **ReceiptDrawer** — slide-in drawer on Transactions page triggered by paperclip icon per row; drag-and-drop or click-to-upload dropzone, thumbnail grid (lightbox for images, new tab for PDFs), inline edit form per receipt, confirmation delete, tax-deductible toggle, green/grey paperclip badge showing count
 
 ## Architecture
 
@@ -25,7 +27,7 @@ ClearLedger is a full-stack, multi-business accounting web application built as 
 
 ### Packages
 
-- `lib/db` — Drizzle ORM schema (PostgreSQL), tables: users, businesses, accounts, transactions, journal_entries, journal_lines, reconciliations
+- `lib/db` — Drizzle ORM schema (PostgreSQL), tables: users, businesses, accounts, transactions, journal_entries, journal_lines, reconciliations, receipts
 - `lib/api-spec` — OpenAPI specification (`openapi.yaml`)
 - `lib/api-client-react` — Orval-generated React Query hooks + Zod schemas
 
