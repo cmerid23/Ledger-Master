@@ -24,6 +24,7 @@ import {
   Briefcase,
   Store,
   FileCheck,
+  Truck,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -48,6 +49,7 @@ const navItems = [
   { path: "/jobs", label: "Jobs", icon: Briefcase },
   { path: "/vendors", label: "Vendors", icon: Store },
   { path: "/bills", label: "Bills (AP)", icon: FileCheck },
+  { path: "/fleet", label: "Fleet", icon: Truck },
   { path: "/accounts", label: "Chart of Accounts", icon: BookOpen },
   { path: "/transactions", label: "Transactions", icon: CreditCard },
   { path: "/journal", label: "Journal Entries", icon: ScrollText },
