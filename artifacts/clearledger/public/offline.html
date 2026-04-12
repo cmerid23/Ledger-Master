@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ClearLedger — Offline</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#0F172A;color:#F1F5F9;font-family:ui-sans-serif,system-ui,sans-serif;text-align:center;padding:2rem}
+    .logo{font-size:2rem;font-weight:700;color:#10B981;margin-bottom:1rem}
+    h1{font-size:1.25rem;margin-bottom:.5rem}
+    p{color:#94A3B8;font-size:.9rem;max-width:28ch;margin:0 auto 1.5rem}
+    button{background:#10B981;color:#fff;border:none;padding:.6rem 1.4rem;border-radius:.5rem;font-size:.9rem;cursor:pointer}
+    button:hover{background:#059669}
+  </style>
+</head>
+<body>
+  <div>
+    <div class="logo">CL</div>
+    <h1>You're offline</h1>
+    <p>Check your connection and try again.</p>
+    <button onclick="location.reload()">Retry</button>
+  </div>
+</body>
+</html>

@@ -1,0 +1,105 @@
+{
+  "name": "ClearLedger — Business Accounting",
+  "short_name": "ClearLedger",
+  "description": "Smart accounting for trucking and service businesses",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F172A",
+  "theme_color": "#10B981",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/dashboard.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Invoice",
+      "short_name": "Invoice",
+      "description": "Create a new invoice",
+      "url": "/invoices/new",
+      "icons": [{ "src": "/icons/shortcut-invoice.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Log Trip",
+      "short_name": "Mileage",
+      "description": "Log a mileage trip",
+      "url": "/mileage",
+      "icons": [{ "src": "/icons/shortcut-mileage.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Log Fuel",
+      "short_name": "Fuel",
+      "description": "Log a fuel purchase",
+      "url": "/mileage?tab=fuel",
+      "icons": [{ "src": "/icons/shortcut-fuel.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Attach Receipt",
+      "short_name": "Receipt",
+      "description": "Attach a receipt to an expense",
+      "url": "/expenses",
+      "icons": [{ "src": "/icons/shortcut-receipt.png", "sizes": "96x96" }]
+    }
+  ]
+}
