@@ -6,6 +6,7 @@ ClearLedger is a full-stack, multi-business accounting web application built as 
 
 ## Features
 
+- **Public Landing Page** — premium marketing homepage at `/` with hero, features grid, pricing tiers, testimonials, about, CTA banner, and footer; dark navy + emerald green design; Framer Motion scroll animations; demo modal; mobile hamburger nav
 - **Multi-business support** — create and switch between businesses
 - **Chart of Accounts (COA)** — hierarchical accounts with type (asset/liability/equity/income/expense), auto-seeded with 27 standard accounts on business creation
 - **Transactions** — debit/credit transactions, bulk categorization, pagination, search/filter

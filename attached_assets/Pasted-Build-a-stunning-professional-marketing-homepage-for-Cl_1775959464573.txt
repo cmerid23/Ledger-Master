@@ -1,0 +1,246 @@
+Build a stunning, professional marketing homepage for ClearLedger — a modern accounting SaaS. This is the public-facing landing page at the / route. It should feel like a premium product, comparable to QuickBooks or Wave but more modern and sleek. Do NOT redirect to login from the root — show this homepage instead. Only redirect to dashboard if the user is already logged in.
+
+TECH
+
+Single page React component: client/src/pages/HomePage.jsx
+Add route in App.js: <Route path="/" element={<HomePage />} />
+Use Tailwind CSS for all styling
+Use Framer Motion for scroll animations (install if not present)
+Use React Router <Link> for navigation buttons
+All sections stack vertically, fully responsive (mobile + desktop)
+
+
+COLOR SCHEME & DESIGN DIRECTION
+
+Primary dark: #0F172A (deep navy)
+Accent green: #10B981 (emerald — represents money/growth)
+Accent light: #F0FDF4
+White: #FFFFFF
+Text muted: #64748B
+Font: Inter (import from Google Fonts)
+Style: clean, modern, trustworthy — like Stripe meets QuickBooks
+Subtle grid background pattern on hero section
+Smooth scroll behavior on the whole page
+
+
+SECTION 1 — TOP NAVIGATION BAR
+
+Fixed at top, white background with subtle shadow on scroll
+Left: ClearLedger logo (green icon + bold text)
+Center links: Features, Pricing, About, Contact
+Right: "Log In" (ghost button) + "Start Free Trial" (green filled button)
+Mobile: hamburger menu that collapses links
+On scroll past 50px add a white background with shadow
+
+
+SECTION 2 — HERO
+
+Full screen height (min-h-screen)
+Large headline (64px bold): "Smart Accounting for Growing Businesses"
+Subheadline (20px muted): "Connect your bank, upload statements, auto-reconcile transactions, and generate professional financial reports — all in one place."
+Two CTA buttons side by side:
+
+"Start Free Trial" → /signup (green filled, large)
+"Watch Demo" → opens a modal with a YouTube embed placeholder
+
+
+Below buttons: "No credit card required · Free 14-day trial · Cancel anytime"
+Right side or below: a mockup screenshot of the ClearLedger dashboard (use a styled div with fake chart/table UI if no real screenshot yet)
+Subtle floating animation on the dashboard mockup
+Background: deep navy with a subtle dot grid pattern and a soft green glow in the corner
+
+
+SECTION 3 — TRUST BAR
+
+Light grey background strip
+Text: "Trusted by small businesses and accountants across industries"
+Row of 6 placeholder company logo boxes (grey rounded rectangles with text like "Bakery Co", "Consulting Ltd", "Retail Store" etc)
+
+
+SECTION 4 — FEATURES (what makes ClearLedger different)
+
+Section title: "Everything you need to run your finances"
+Subtitle: "Built for business owners who want clarity, not complexity"
+6 feature cards in a 3-column grid (2 columns on tablet, 1 on mobile):
+
+Card 1 — Bank Connection
+Icon: bank/plug icon (SVG)
+Title: "Connect Your Bank"
+Text: "Link your bank account via Plaid and automatically import transactions in real time. No manual data entry."
+Card 2 — Statement Upload
+Icon: upload icon
+Title: "Upload Bank Statements"
+Text: "Import CSV or PDF bank statements. Our parser reads them instantly and categorises every transaction."
+Card 3 — Auto Reconciliation
+Icon: checkmark/sync icon
+Title: "Automatic Reconciliation"
+Text: "Our engine matches bank transactions to journal entries by amount, date, and description — flagging only what needs your attention."
+Card 4 — Receipt Attachment
+Icon: receipt/camera icon
+Title: "Attach Receipts"
+Text: "Photo your receipts and attach them directly to expenses. Come tax season, every deduction is documented and ready."
+Card 5 — Financial Reports
+Icon: chart/bar icon
+Title: "Profit & Loss Reports"
+Text: "Generate monthly or yearly P&L, Balance Sheet, and Cash Flow statements. Export to PDF or CSV in one click."
+Card 6 — Multi-Business
+Icon: buildings icon
+Title: "Multiple Businesses"
+Text: "Manage all your companies from one account. Each business has its own chart of accounts, reports, and team access."
+
+Cards have white background, subtle border, green icon accent, hover lift effect
+
+
+SECTION 5 — HOW IT WORKS (3 steps)
+
+Dark navy background
+Section title (white): "Up and running in minutes"
+3 steps side by side with a connecting line between them:
+
+Step 1 — "Create your business"
+"Sign up free, create your business profile, and choose your chart of accounts template."
+Step 2 — "Connect or upload"
+"Link your bank via Plaid or upload your monthly CSV/PDF statement. Transactions import automatically."
+Step 3 — "Reconcile and report"
+"Our engine reconciles your books, you attach receipts to expenses, and generate reports whenever you need them."
+
+Each step has a large numbered circle (green), title, and description
+Animate steps in on scroll (fade up with Framer Motion)
+
+
+SECTION 6 — PRICING
+
+Section title: "Simple, transparent pricing"
+Subtitle: "Start free. Upgrade when you're ready."
+3 pricing cards side by side:
+
+Card 1 — Starter (Free)
+Price: $0/month
+Features list:
+✓ 1 business
+✓ Upload bank statements (CSV)
+✓ Up to 100 transactions/month
+✓ Basic P&L report
+✓ Receipt attachment (10 receipts)
+CTA: "Get Started Free"
+Card 2 — Pro (Most Popular — highlight this card with green border and badge)
+Price: $19/month
+Features list:
+✓ Up to 3 businesses
+✓ Bank connection via Plaid
+✓ Unlimited transactions
+✓ Full reports (P&L, Balance Sheet, Cash Flow)
+✓ Unlimited receipt storage
+✓ Tax year-end export (ZIP)
+✓ PDF export
+CTA: "Start Free Trial"
+Card 3 — Business
+Price: $49/month
+Features list:
+✓ Unlimited businesses
+✓ Everything in Pro
+✓ Team member access
+✓ Priority support
+✓ Custom chart of accounts
+✓ Email reports to accountant
+✓ API access
+CTA: "Contact Us"
+
+Toggle at top: Monthly / Yearly (yearly shows 20% discount)
+Cards animate in on scroll
+
+
+SECTION 7 — TESTIMONIALS
+
+Light background
+Section title: "What our users say"
+3 testimonial cards:
+
+Testimonial 1:
+"ClearLedger replaced three spreadsheets and an accountant visit. Reconciliation used to take me a full day — now it takes ten minutes."
+— Sarah M., Bakery Owner
+Testimonial 2:
+"Attaching receipts to every expense has made tax season stress-free. My accountant loves the year-end ZIP export."
+— James K., Freelance Consultant
+Testimonial 3:
+"Managing two businesses from one account with separate books is exactly what I needed. Clean, fast, reliable."
+— Priya R., Retail Business Owner
+
+Each card: quote text, star rating (5 stars), avatar circle with initials, name and title
+Soft shadow, white card background
+
+
+SECTION 8 — ABOUT US
+
+Two column layout: left text, right image placeholder
+Title: "Built by people who understand small business"
+Text: "ClearLedger was built because existing accounting software was either too complex, too expensive, or too outdated. We wanted something that connects to your bank, reconciles automatically, stores your receipts, and generates reports without needing an accounting degree. We are a small team obsessed with making financial clarity accessible to every business owner."
+Key stats row below text:
+
+"500+ Businesses" · "2M+ Transactions Processed" · "99.9% Uptime" · "4.9★ Rating"
+
+
+CTA button: "Learn More About Us"
+
+
+SECTION 9 — FINAL CTA BANNER
+
+Full width, green background (#10B981)
+Large white text: "Ready to take control of your finances?"
+Subtext: "Join hundreds of business owners using ClearLedger to reconcile faster, report smarter, and stress less at tax time."
+Two buttons: "Start Free Trial" (white filled, dark text) + "Book a Demo" (white outline)
+
+
+SECTION 10 — FOOTER
+
+Dark navy background
+4 columns:
+Col 1: ClearLedger logo + tagline "Smart accounting for growing businesses" + social icons (Twitter, LinkedIn, Facebook — SVG icons)
+Col 2: Product — Features, Pricing, Changelog, Roadmap
+Col 3: Company — About, Blog, Careers, Contact
+Col 4: Legal — Privacy Policy, Terms of Service, Cookie Policy, Security
+Bottom bar: "© 2025 ClearLedger. All rights reserved." centered
+Divider line above bottom bar
+
+
+ANIMATIONS (Framer Motion)
+
+Hero headline fades in and slides up on load (delay 0.2s)
+Hero subtext fades in (delay 0.4s)
+Hero buttons fade in (delay 0.6s)
+Dashboard mockup slides in from right (delay 0.5s)
+Feature cards fade up one by one on scroll (staggered 0.1s each)
+Pricing cards fade up on scroll
+Testimonials slide in from left on scroll
+How it works steps fade up staggered on scroll
+All animations respect prefers-reduced-motion
+
+
+DEMO MODAL
+
+Triggered by "Watch Demo" button
+Dark overlay background
+Centered modal with close button (X)
+Inside: 16:9 ratio placeholder box with text "Demo video coming soon" styled like a video player
+Close on clicking overlay or X button
+Smooth open/close animation
+
+
+MOBILE RESPONSIVENESS
+
+Nav collapses to hamburger at md breakpoint
+Hero stacks vertically on mobile (text top, mockup below)
+Feature grid: 1 column on mobile, 2 on tablet, 3 on desktop
+Pricing cards stack on mobile
+Testimonials stack on mobile
+How it works steps stack vertically on mobile with vertical connecting line
+Footer columns stack on mobile
+
+
+FINAL CHECKS AFTER BUILDING
+
+All internal links (/login, /signup, /dashboard) use React Router <Link> not <a href>
+No broken images — use styled placeholder divs where real images would go
+Page loads fast — no unnecessary libraries
+Smooth scroll works on all section anchor links
+Run the app and fix any console errors before finishin
