@@ -75,7 +75,28 @@ const STATUSES: Record<string, { label: string; color: string }> = {
   "on-hold": { label: "On Hold",   color: "bg-yellow-100 text-yellow-700" },
 };
 
-const EXPENSE_TYPES = ["fuel", "tolls", "driver_pay", "maintenance", "insurance", "other"];
+const EXPENSE_TYPES: { key: string; label: string }[] = [
+  { key: "fuel_oil",              label: "Fuel & Oil" },
+  { key: "tolls_scales",          label: "Tolls & Scales" },
+  { key: "driver_pay",            label: "Driver Pay & Per Diem" },
+  { key: "truck_lease",           label: "Truck Lease / Loan Payments" },
+  { key: "maintenance",           label: "Truck Maintenance & Repairs" },
+  { key: "tires",                 label: "Tires" },
+  { key: "insurance",             label: "Insurance (Truck & Cargo)" },
+  { key: "permits_licenses",      label: "Permits & Licenses" },
+  { key: "dot_compliance",        label: "DOT Compliance" },
+  { key: "dispatch_fees",         label: "Dispatch Fees" },
+  { key: "lumper_fees",           label: "Lumper Fees" },
+  { key: "parking_storage",       label: "Parking & Storage" },
+  { key: "communication",         label: "Communication (Phone, ELD)" },
+  { key: "office_admin",          label: "Office & Admin" },
+  { key: "professional_services", label: "Professional Services (Accountant, Legal)" },
+];
+
+function expenseLabel(key: string | null | undefined): string {
+  if (!key) return "Expense";
+  return EXPENSE_TYPES.find((t) => t.key === key)?.label ?? key.replace(/_/g, " ");
+}
 
 function authFetch(url: string, opts: RequestInit = {}) {
   return fetch(url, {
@@ -117,7 +138,7 @@ export default function JobsPage({ businessId }: Props) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [statusDropOpen, setStatusDropOpen] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [expenseForm, setExpenseForm] = useState({ description: "", amount: "", expenseType: "fuel", date: today() });
+  const [expenseForm, setExpenseForm] = useState({ description: "", amount: "", expenseType: "fuel_oil", date: today() });
   const [deletingExpense, setDeletingExpense] = useState<number | null>(null);
 
   const { data: jobsResponse, isLoading } = useQuery<JobsResponse>({
@@ -184,7 +205,7 @@ export default function JobsPage({ businessId }: Props) {
 
   function openDetail(j: Job) {
     setDetailId(j.id);
-    setExpenseForm({ description: "", amount: "", expenseType: "fuel", date: today() });
+    setExpenseForm({ description: "", amount: "", expenseType: "fuel_oil", date: today() });
     setView("detail");
   }
 
@@ -250,7 +271,7 @@ export default function JobsPage({ businessId }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["jobs", businessId, detailId] });
       qc.invalidateQueries({ queryKey: ["jobs", businessId] });
-      setExpenseForm({ description: "", amount: "", expenseType: "fuel", date: today() });
+      setExpenseForm({ description: "", amount: "", expenseType: "fuel_oil", date: today() });
       toast({ title: "Expense added" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -540,7 +561,7 @@ export default function JobsPage({ businessId }: Props) {
                     return (
                       <div key={type}>
                         <div className="flex justify-between text-sm mb-0.5">
-                          <span className="text-muted-foreground capitalize">{type.replace("_", " ")}</span>
+                          <span className="text-muted-foreground">{expenseLabel(type)}</span>
                           <div className="flex gap-2">
                             <span className="font-medium">{formatCurrency(n(amt))}</span>
                             <span className="text-muted-foreground text-xs">{pctVal.toFixed(1)}%</span>
@@ -599,8 +620,8 @@ export default function JobsPage({ businessId }: Props) {
               {expenses.map((exp) => (
                 <div key={exp.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-muted/40 transition-colors group">
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-foreground">{exp.description || exp.expenseType || "Expense"}</span>
-                    <span className="ml-2 text-xs text-muted-foreground capitalize">{exp.expenseType?.replace("_", " ")}</span>
+                    <span className="text-sm font-medium text-foreground">{exp.description || expenseLabel(exp.expenseType)}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{expenseLabel(exp.expenseType)}</span>
                     {exp.date && <span className="ml-2 text-xs text-muted-foreground">{exp.date}</span>}
                   </div>
                   <span className="text-sm font-medium">{formatCurrency(n(exp.amount))}</span>
@@ -624,8 +645,8 @@ export default function JobsPage({ businessId }: Props) {
             <Input placeholder="Description" value={expenseForm.description} onChange={(e) => setExpenseForm((p) => ({ ...p, description: e.target.value }))} className="text-sm" />
             <Input type="number" min="0.01" step="0.01" placeholder="Amount" value={expenseForm.amount} onChange={(e) => setExpenseForm((p) => ({ ...p, amount: e.target.value }))} className="text-sm" required />
             <select value={expenseForm.expenseType} onChange={(e) => setExpenseForm((p) => ({ ...p, expenseType: e.target.value }))}
-              className="h-9 px-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring capitalize">
-              {EXPENSE_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
+              className="h-9 px-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+              {EXPENSE_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
             <Input type="date" value={expenseForm.date} onChange={(e) => setExpenseForm((p) => ({ ...p, date: e.target.value }))} className="text-sm" />
             <Button type="submit" size="sm" className="gap-1.5" disabled={addExpenseMutation.isPending}>
