@@ -1,0 +1,99 @@
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+async function sendInvoiceEmail({ to, customerName, businessName, invoiceNumber, dueDate, total, pdfBuffer }) {
+  return resend.emails.send({
+    from: process.env.FROM_EMAIL || 'invoices@clearedger.com',
+    to,
+    subject: `Invoice ${invoiceNumber} from ${businessName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #0F172A;">Invoice from ${businessName}</h2>
+        <p>Hi ${customerName},</p>
+        <p>Please find your invoice attached.</p>
+        <table style="width:100%; border-collapse: collapse; margin: 20px 0;">
+          <tr><td style="padding: 8px; color: #64748B;">Invoice Number</td><td style="padding: 8px; font-weight: bold;">${invoiceNumber}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B;">Amount Due</td><td style="padding: 8px; font-weight: bold; color: #10B981;">$${total}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B;">Due Date</td><td style="padding: 8px;">${dueDate}</td></tr>
+        </table>
+        <p style="color: #64748B; font-size: 14px;">Please contact us if you have any questions.</p>
+        <p>Thank you for your business.</p>
+        <p><strong>${businessName}</strong></p>
+      </div>
+    `,
+    attachments: [{
+      filename: `Invoice-${invoiceNumber}.pdf`,
+      content: pdfBuffer
+    }]
+  });
+}
+
+async function sendQuoteEmail({ to, customerName, businessName, quoteNumber, expiryDate, total, pdfBuffer }) {
+  return resend.emails.send({
+    from: process.env.FROM_EMAIL || 'quotes@clearedger.com',
+    to,
+    subject: `Quote ${quoteNumber} from ${businessName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #0F172A;">Quote from ${businessName}</h2>
+        <p>Hi ${customerName},</p>
+        <p>Please find your quote attached. This quote is valid until ${expiryDate}.</p>
+        <table style="width:100%; border-collapse: collapse; margin: 20px 0;">
+          <tr><td style="padding: 8px; color: #64748B;">Quote Number</td><td style="padding: 8px; font-weight: bold;">${quoteNumber}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B;">Total</td><td style="padding: 8px; font-weight: bold; color: #10B981;">$${total}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B;">Valid Until</td><td style="padding: 8px;">${expiryDate}</td></tr>
+        </table>
+        <p>To accept this quote, simply reply to this email or contact us directly.</p>
+        <p><strong>${businessName}</strong></p>
+      </div>
+    `,
+    attachments: [{
+      filename: `Quote-${quoteNumber}.pdf`,
+      content: pdfBuffer
+    }]
+  });
+}
+
+async function sendPasswordResetEmail({ to, resetLink, businessName }) {
+  return resend.emails.send({
+    from: process.env.FROM_EMAIL || 'noreply@clearedger.com',
+    to,
+    subject: 'Reset your ClearLedger password',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #0F172A;">Reset your password</h2>
+        <p>We received a request to reset your ClearLedger password.</p>
+        <p>Click the button below to choose a new password. This link expires in 1 hour.</p>
+        <a href="${resetLink}" style="display: inline-block; background: #10B981; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin: 20px 0; font-weight: bold;">Reset Password</a>
+        <p style="color: #64748B; font-size: 14px;">If you did not request this, ignore this email — your password will not change.</p>
+      </div>
+    `
+  });
+}
+
+async function sendOverdueReminderEmail({ to, customerName, businessName, invoiceNumber, daysOverdue, amountDue, pdfBuffer }) {
+  return resend.emails.send({
+    from: process.env.FROM_EMAIL || 'invoices@clearedger.com',
+    to,
+    subject: `Payment reminder — Invoice ${invoiceNumber} is ${daysOverdue} days overdue`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #EF4444;">Payment Reminder</h2>
+        <p>Hi ${customerName},</p>
+        <p>This is a friendly reminder that Invoice <strong>${invoiceNumber}</strong> from ${businessName} is <strong>${daysOverdue} days overdue</strong>.</p>
+        <table style="width:100%; border-collapse: collapse; margin: 20px 0;">
+          <tr><td style="padding: 8px; color: #64748B;">Amount Due</td><td style="padding: 8px; font-weight: bold; color: #EF4444;">$${amountDue}</td></tr>
+        </table>
+        <p>Please arrange payment at your earliest convenience. The invoice is attached for your reference.</p>
+        <p>If you have already made payment, please disregard this notice.</p>
+        <p><strong>${businessName}</strong></p>
+      </div>
+    `,
+    attachments: pdfBuffer ? [{
+      filename: `Invoice-${invoiceNumber}.pdf`,
+      content: pdfBuffer
+    }] : []
+  });
+}
+
+module.exports = { sendInvoiceEmail, sendQuoteEmail, sendPasswordResetEmail, sendOverdueReminderEmail };
