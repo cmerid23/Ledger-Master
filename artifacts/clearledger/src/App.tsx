@@ -29,6 +29,7 @@ import LandingPage from "@/pages/Landing";
 import CustomersPage from "@/pages/Customers";
 import InvoicesPage from "@/pages/Invoices";
 import QuotesPage from "@/pages/Quotes";
+import JobsPage from "@/pages/Jobs";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -103,6 +104,9 @@ function ProtectedApp() {
         </Route>
         <Route path="/quotes">
           <QuotesPage businessId={businessId} />
+        </Route>
+        <Route path="/jobs">
+          <JobsPage businessId={businessId} />
         </Route>
         <Route path="/">
           <Redirect to="/dashboard" />
