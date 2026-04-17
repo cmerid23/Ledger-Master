@@ -4,6 +4,10 @@ buildCommand = "pnpm install --no-frozen-lockfile && BASE_PATH=/ NODE_ENV=produc
 [deploy]
 startCommand = "pnpm --filter @workspace/db run push-force && pnpm --filter @workspace/api-server run seed && node artifacts/api-server/dist/index.mjs"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 60
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+
+[environments.production]
+DATABASE_URL = "${{Postgres.DATABASE_URL}}"
+SESSION_SECRET = "${{SESSION_SECRET}}"
