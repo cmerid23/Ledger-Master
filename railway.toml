@@ -3,7 +3,7 @@ buildCommand = "pnpm install --no-frozen-lockfile && BASE_PATH=/ NODE_ENV=produc
 
 [deploy]
 startCommand = "pnpm --filter @workspace/db run push-force && pnpm --filter @workspace/api-server run seed && node artifacts/api-server/dist/index.mjs"
-healthcheckPath = "/api/health"
+healthcheckPath = "/api/healthz"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
