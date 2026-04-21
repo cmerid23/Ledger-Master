@@ -1,16 +1,14 @@
 import { Router, type IRouter } from "express";
-import { HealthCheckResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
+// Must respond immediately — Railway checks this before DB migrations finish
 router.get("/health", (_req, res) => {
-  const data = HealthCheckResponse.parse({ status: "ok" });
-  res.json(data);
+  res.status(200).json({ status: "ok", ts: Date.now() });
 });
 
 router.get("/healthz", (_req, res) => {
-  const data = HealthCheckResponse.parse({ status: "ok" });
-  res.json(data);
+  res.status(200).json({ status: "ok", ts: Date.now() });
 });
 
 export default router;
