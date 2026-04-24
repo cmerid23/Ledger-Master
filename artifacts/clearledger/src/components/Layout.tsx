@@ -26,6 +26,8 @@ import {
   Store,
   FileCheck,
   Truck,
+  Clock,
+  FileSignature,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -47,7 +49,9 @@ const navItems = [
   { path: "/customers", label: "Customers", icon: Users },
   { path: "/invoices", label: "Invoices", icon: FileText },
   { path: "/quotes", label: "Quotes", icon: ClipboardList },
+  { path: "/proposals", label: "Proposals", icon: FileSignature },
   { path: "/jobs", label: "Jobs", icon: Briefcase },
+  { path: "/time-tracking", label: "Time Tracking", icon: Clock },
   { path: "/vendors", label: "Vendors", icon: Store },
   { path: "/bills", label: "Bills (AP)", icon: FileCheck },
   { path: "/fleet", label: "Fleet", icon: Truck },

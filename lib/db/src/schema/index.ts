@@ -13,3 +13,5 @@ export * from "./jobs";
 export * from "./vendors";
 export * from "./vehicles";
 export * from "./subscriptions";
+export * from "./timeEntries";
+export * from "./proposals";

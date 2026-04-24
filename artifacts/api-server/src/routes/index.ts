@@ -23,6 +23,8 @@ import billsRouter from "./bills";
 import vehiclesRouter from "./vehicles";
 import pushRouter from "./push";
 import billingRouter from "./billing";
+import timeEntriesRouter from "./timeEntries";
+import proposalsRouter from "./proposals";
 
 const router: IRouter = Router();
 
@@ -50,5 +52,7 @@ router.use(billsRouter);
 router.use(vehiclesRouter);
 router.use(pushRouter);
 router.use(billingRouter);
+router.use(timeEntriesRouter);
+router.use(proposalsRouter);
 
 export default router;

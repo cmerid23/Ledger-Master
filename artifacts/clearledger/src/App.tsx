@@ -37,6 +37,8 @@ import BillsPage from "@/pages/Bills";
 import FleetPage from "@/pages/Fleet";
 import InstallPage from "@/pages/Install";
 import BillingPage from "@/pages/Billing";
+import TimeTrackingPage from "@/pages/TimeTracking";
+import ProposalsPage from "@/pages/Proposals";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { UpdateBanner } from "@/components/UpdateBanner";
 
@@ -128,6 +130,12 @@ function ProtectedApp() {
         </Route>
         <Route path="/billing">
           <BillingPage />
+        </Route>
+        <Route path="/time-tracking">
+          <TimeTrackingPage businessId={businessId} />
+        </Route>
+        <Route path="/proposals">
+          <ProposalsPage businessId={businessId} />
         </Route>
         <Route path="/">
           <Redirect to="/dashboard" />
