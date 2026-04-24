@@ -54,6 +54,8 @@ async function buildAll() {
       "mongodb-client-encryption",
       "nodemailer",
       "pdfkit",
+      "pdf-parse",
+      "xlsx",
       "handlebars",
       "knex",
       "typeorm",
