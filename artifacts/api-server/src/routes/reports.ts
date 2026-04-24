@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, transactionsTable, accountsTable, journalLinesTable, journalEntriesTable, businessesTable } from "@workspace/db";
-import { eq, and, sql, lte } from "drizzle-orm";
+import { eq, and, sql, lte, isNull, gte } from "drizzle-orm";
 import {
   GetProfitLossReportParams,
   GetProfitLossReportQueryParams,
@@ -85,6 +85,40 @@ router.get("/businesses/:businessId/reports/profit-loss", async (req: AuthReques
       amount: await getAccountTotal(a.id),
     }))
   );
+
+  // Also pull in unassigned transactions (bank uploads with no account mapping)
+  // so the P&L is populated immediately after a statement import.
+  const unassignedCreditResult = await db
+    .select({ total: sql<number>`coalesce(sum(cast(${transactionsTable.amount} as numeric)), 0)` })
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.businessId, businessId),
+      isNull(transactionsTable.accountId),
+      eq(transactionsTable.type, "credit"),
+      gte(transactionsTable.date, startDate),
+      lte(transactionsTable.date, endDate),
+    ));
+
+  const unassignedDebitResult = await db
+    .select({ total: sql<number>`coalesce(sum(cast(${transactionsTable.amount} as numeric)), 0)` })
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.businessId, businessId),
+      isNull(transactionsTable.accountId),
+      eq(transactionsTable.type, "debit"),
+      gte(transactionsTable.date, startDate),
+      lte(transactionsTable.date, endDate),
+    ));
+
+  const unassignedCreditTotal = Number(unassignedCreditResult[0]?.total ?? 0);
+  const unassignedDebitTotal  = Number(unassignedDebitResult[0]?.total ?? 0);
+
+  if (unassignedCreditTotal > 0) {
+    incomeItems.push({ accountId: -1, accountName: "Bank Deposits (Unassigned)", accountCode: "", amount: unassignedCreditTotal });
+  }
+  if (unassignedDebitTotal > 0) {
+    expenseItems.push({ accountId: -1, accountName: "Bank Withdrawals (Unassigned)", accountCode: "", amount: unassignedDebitTotal });
+  }
 
   const totalIncome = incomeItems.reduce((sum, i) => sum + i.amount, 0);
   const totalExpenses = expenseItems.reduce((sum, i) => sum + i.amount, 0);
@@ -257,6 +291,56 @@ router.get("/businesses/:businessId/reports/trial-balance", async (req: AuthRequ
     totalCredits,
     isBalanced: Math.abs(totalDebits - totalCredits) < 0.01,
   });
+});
+
+// ── Monthly Cash-Basis P&L ────────────────────────────────────────────────────
+// Groups ALL transactions (assigned + unassigned) by month → great for quick
+// analysis right after a bank statement import.
+
+router.get("/businesses/:businessId/reports/monthly", async (req: AuthRequest, res): Promise<void> => {
+  const businessId = Number(req.params.businessId);
+  if (!businessId) { res.status(400).json({ error: "businessId required" }); return; }
+
+  const owned = await verifyBusinessOwnership(businessId, req.userId!);
+  if (!owned) { res.status(404).json({ error: "Business not found" }); return; }
+
+  const startDate = (req.query.startDate as string) || "2020-01-01";
+  const endDate   = (req.query.endDate   as string) || new Date().toISOString().slice(0, 10);
+
+  // Get all transactions grouped by month and type
+  const rows = await db
+    .select({
+      month: sql<string>`to_char(${transactionsTable.date}::date, 'YYYY-MM')`,
+      type:  transactionsTable.type,
+      total: sql<number>`sum(cast(${transactionsTable.amount} as numeric))`,
+    })
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.businessId, businessId),
+      gte(transactionsTable.date, startDate),
+      lte(transactionsTable.date, endDate),
+    ))
+    .groupBy(
+      sql`to_char(${transactionsTable.date}::date, 'YYYY-MM')`,
+      transactionsTable.type,
+    )
+    .orderBy(sql`to_char(${transactionsTable.date}::date, 'YYYY-MM')`);
+
+  // Pivot into month objects
+  const byMonth: Record<string, { month: string; income: number; expenses: number; net: number }> = {};
+  for (const row of rows) {
+    const m = row.month;
+    if (!byMonth[m]) byMonth[m] = { month: m, income: 0, expenses: 0, net: 0 };
+    const amt = Number(row.total ?? 0);
+    if (row.type === "credit") byMonth[m].income += amt;
+    else byMonth[m].expenses += amt;
+  }
+  const months = Object.values(byMonth).map(m => ({ ...m, net: m.income - m.expenses }));
+
+  const totalIncome   = months.reduce((s, m) => s + m.income,   0);
+  const totalExpenses = months.reduce((s, m) => s + m.expenses, 0);
+
+  res.json({ months, totalIncome, totalExpenses, netProfit: totalIncome - totalExpenses });
 });
 
 export default router;

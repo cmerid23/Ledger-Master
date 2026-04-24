@@ -189,8 +189,12 @@ function parseBankStatementPdf(text: string): ParsedTx[] {
   type SectionType = "credit" | "debit" | "none";
   let section: SectionType = "none";
 
-  const amountRe = /\$?([\d,]+\.\d{2})\s*$/;
-  const dateRe   = /^(\d{1,2}\/\d{2})\b/;
+  // Chase PDFs: amount appears on the same line as the date, but continuation
+  // lines follow (trace numbers, etc.) with no amount — so we must NOT anchor
+  // to end-of-string. Find the LAST $ amount anywhere in the combined block.
+  const dollarAmtRe = /\$([\d,]+\.\d{2})/g;
+  const amountRe    = /\$?([\d,]+\.\d{2})\s*$/; // still used for quick "has amount at end" check
+  const dateRe      = /^(\d{1,2}\/\d{2})\b/;
 
   const skipPatterns = [
     /^total\s/i, /^date\s+desc/i, /^beginning balance/i, /^ending balance/i,
@@ -234,12 +238,17 @@ function parseBankStatementPdf(text: string): ParsedTx[] {
   function flush() {
     if (!pendingDate || pendingSection === "none") { pendingDate = null; pendingDesc = []; return; }
     const full = pendingDesc.join(" ");
-    const amtMatch = full.match(amountRe);
-    if (amtMatch) {
-      const amount = parseFloat(amtMatch[1].replace(/,/g, ""));
+
+    // Collect ALL $ amounts in the block; the LAST one is the transaction amount
+    // (Chase format: "10/03 ... description ... $20,429.12  extra detail no amount")
+    const allMatches = [...full.matchAll(dollarAmtRe)];
+    if (allMatches.length > 0) {
+      const m = allMatches[allMatches.length - 1]; // last $ amount in the block
+      const amount = parseFloat(m[1].replace(/,/g, ""));
       if (amount > 0) {
-        const description = cleanDesc(full.replace(amountRe, "").trim());
-        txns.push({ date: pendingDate, description, amount, type: pendingSection });
+        // description = everything before the amount occurrence
+        const description = cleanDesc(full.slice(0, m.index).trim());
+        txns.push({ date: pendingDate, description: description || "Bank Transaction", amount, type: pendingSection });
       }
     }
     pendingDate = null;
@@ -257,7 +266,11 @@ function parseBankStatementPdf(text: string): ParsedTx[] {
       const [month, day] = m[1].split("/");
       pendingDate = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
       pendingSection = section;
-      pendingDesc = [line.replace(dateRe, "").trim()];
+      const rest = line.replace(dateRe, "").trim();
+      pendingDesc = [rest];
+      // Chase-style: amount is already on the date line — flush immediately so
+      // continuation lines (trace numbers, etc.) don't interfere
+      if (amountRe.test(rest)) flush();
     } else if (pendingDate) {
       pendingDesc.push(line);
       if (amountRe.test(line)) flush();
