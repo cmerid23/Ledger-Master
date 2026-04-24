@@ -31,6 +31,7 @@ export const invoicesTable = pgTable("invoices", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   paidAt: timestamp("paid_at", { withTimezone: true }),
+  publicToken: text("public_token"),
 });
 
 export const invoiceLineItemsTable = pgTable("invoice_line_items", {

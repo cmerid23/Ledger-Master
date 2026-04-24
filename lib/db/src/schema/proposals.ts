@@ -23,7 +23,7 @@ export const proposalsTable = pgTable("proposals", {
   currency: text("currency").notNull().default("USD"),
   notes: text("notes"),
   terms: text("terms"),
-  publicToken: text("public_token").unique(),
+  publicToken: text("public_token"),
   convertedToInvoiceId: integer("converted_to_invoice_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   sentAt: timestamp("sent_at", { withTimezone: true }),

@@ -25,6 +25,12 @@ ClearLedger is a full-stack, multi-business accounting web application built as 
 - **Settings** — update business name, currency, fiscal year start; manage multiple businesses
 - **Receipts** — upload receipts (multipart via `POST /api/receipts/upload`), attach to transactions, manage metadata (vendor, amount, date, category, notes, tax-deductible flag), ZIP export by tax year
 - **ReceiptDrawer** — slide-in drawer on Transactions page triggered by paperclip icon per row; drag-and-drop or click-to-upload dropzone, thumbnail grid (lightbox for images, new tab for PDFs), inline edit form per receipt, confirmation delete, tax-deductible toggle, green/grey paperclip badge showing count
+- **Time Tracking** — log billable/non-billable hours with description, date, rate/hr (auto-calculates amount), link to customer and job; summary cards for total hours, unbilled hours, total earned, unbilled amount; billed/unbilled status; full CRUD; `time_entries` DB table
+- **Proposals** — create proposals with line items, tax, discount; status workflow (draft → sent → viewed → accepted → declined → expired); one-click convert accepted proposal to invoice; `proposals`, `proposal_line_items` DB tables
+- **Recurring Billing** — create recurring invoice schedules (weekly/biweekly/monthly/quarterly/yearly); auto-generates invoice on "Run now" or scheduled runs; configurable due-after-days, customer linking, auto-send option; pause/resume schedules; `recurring_schedules` DB table
+- **Client Portal** — public invoice view page at `/portal/:token`; send clients a shareable link; shows invoice details, line items, payment history, totals; marks invoice as "viewed" on first open; no auth required
+- **AI Tools** — smart transaction categorizer (keyword-based, maps to COA categories); quick invoice parser (parse plain-text item descriptions into invoice line items); category confidence scores
+- **Developer API** — API key management; generate/revoke keys with scopes (read / read+write / admin); keys hashed before storage, raw key shown only once; quick reference for available endpoints; `api_keys` DB table
 
 ## Architecture
 

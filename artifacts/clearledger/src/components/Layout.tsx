@@ -28,6 +28,9 @@ import {
   Truck,
   Clock,
   FileSignature,
+  Repeat,
+  Sparkles,
+  Code2,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -63,7 +66,10 @@ const navItems = [
   { path: "/upload", label: "Upload Statement", icon: Upload },
   { path: "/receipts", label: "Receipts", icon: Receipt },
   { path: "/tax-pack", label: "Tax Pack", icon: Archive },
+  { path: "/recurring-billing", label: "Recurring Billing", icon: Repeat },
+  { path: "/ai-tools", label: "AI Tools", icon: Sparkles },
   { path: "/billing", label: "Billing", icon: CreditCard },
+  { path: "/developer-api", label: "Developer API", icon: Code2 },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

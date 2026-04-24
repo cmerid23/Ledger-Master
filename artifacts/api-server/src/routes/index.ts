@@ -25,6 +25,10 @@ import pushRouter from "./push";
 import billingRouter from "./billing";
 import timeEntriesRouter from "./timeEntries";
 import proposalsRouter from "./proposals";
+import apiKeysRouter from "./apiKeys";
+import clientPortalRouter from "./clientPortal";
+import recurringBillingRouter from "./recurringBilling";
+import aiRouter from "./ai";
 
 const router: IRouter = Router();
 
@@ -54,5 +58,9 @@ router.use(pushRouter);
 router.use(billingRouter);
 router.use(timeEntriesRouter);
 router.use(proposalsRouter);
+router.use(apiKeysRouter);
+router.use(clientPortalRouter);
+router.use(recurringBillingRouter);
+router.use(aiRouter);
 
 export default router;

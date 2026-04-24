@@ -39,6 +39,10 @@ import InstallPage from "@/pages/Install";
 import BillingPage from "@/pages/Billing";
 import TimeTrackingPage from "@/pages/TimeTracking";
 import ProposalsPage from "@/pages/Proposals";
+import RecurringBillingPage from "@/pages/RecurringBilling";
+import DeveloperApiPage from "@/pages/DeveloperApi";
+import AiToolsPage from "@/pages/AiTools";
+import ClientPortalPage from "@/pages/ClientPortal";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { UpdateBanner } from "@/components/UpdateBanner";
 
@@ -137,6 +141,15 @@ function ProtectedApp() {
         <Route path="/proposals">
           <ProposalsPage businessId={businessId} />
         </Route>
+        <Route path="/recurring-billing">
+          <RecurringBillingPage businessId={businessId} />
+        </Route>
+        <Route path="/developer-api">
+          <DeveloperApiPage businessId={businessId} />
+        </Route>
+        <Route path="/ai-tools">
+          <AiToolsPage businessId={businessId} />
+        </Route>
         <Route path="/">
           <Redirect to="/dashboard" />
         </Route>
@@ -175,6 +188,7 @@ function Router() {
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password/:token" component={ResetPasswordPage} />
       <Route path="/install" component={InstallPage} />
+      <Route path="/portal/:token" component={ClientPortalPage} />
       <Route path="/admin/login">
         <Redirect to="/login" />
       </Route>

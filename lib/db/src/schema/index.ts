@@ -15,3 +15,5 @@ export * from "./vehicles";
 export * from "./subscriptions";
 export * from "./timeEntries";
 export * from "./proposals";
+export * from "./apiKeys";
+export * from "./recurringSchedules";
