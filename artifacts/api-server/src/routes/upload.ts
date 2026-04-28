@@ -29,36 +29,97 @@ async function verifyBusiness(businessId: number, userId: number): Promise<boole
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const MONTH_NAMES: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+  january: "01", february: "02", march: "03", april: "04", june: "06",
+  july: "07", august: "08", september: "09", october: "10", november: "11", december: "12",
+};
+
 function normalizeDate(raw: string): string {
   if (!raw) return "";
-  raw = raw.trim();
+  raw = raw.trim().replace(/['"]/g, "");
+  if (!raw) return "";
+
   // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  // MM/DD/YYYY or DD/MM/YYYY or M/D/YY
-  if (raw.includes("/")) {
-    const parts = raw.split("/");
-    if (parts.length === 3) {
-      const yr = parts[2].length === 4 ? parts[2] : `20${parts[2]}`;
-      return `${yr}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}`;
-    }
+
+  // YYYYMMDD (OFX / some exports)
+  if (/^\d{8}$/.test(raw)) {
+    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
   }
-  // MM-DD-YYYY
-  if (/^\d{2}-\d{2}-\d{4}$/.test(raw)) {
-    const [m, d, y] = raw.split("-");
-    return `${y}-${m}-${d}`;
+
+  // MM/DD/YYYY or M/D/YYYY or M/D/YY
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    const [, p1, p2, p3] = slashMatch;
+    const yr = p3.length === 2 ? `20${p3}` : p3;
+    // If p3 is the year (4-digit), assume MM/DD/YYYY
+    return `${yr}-${p1.padStart(2, "0")}-${p2.padStart(2, "0")}`;
   }
+
+  // DD-MM-YYYY or MM-DD-YYYY or YYYY-MM-DD already handled
+  const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (dashMatch) {
+    const [, p1, p2, yr] = dashMatch;
+    // Assume MM-DD-YYYY
+    return `${yr}-${p1.padStart(2, "0")}-${p2.padStart(2, "0")}`;
+  }
+
+  // DD-Mon-YYYY or Mon-DD-YYYY (e.g. "15-Jan-2024" or "Jan-15-2024")
+  const monDash = raw.match(/^(\d{1,2})-([A-Za-z]{3,9})-(\d{2,4})$/);
+  if (monDash) {
+    const [, d, mon, yr] = monDash;
+    const m = MONTH_NAMES[mon.toLowerCase()];
+    if (m) return `${yr.length === 2 ? "20" + yr : yr}-${m}-${d.padStart(2, "0")}`;
+  }
+  const monDash2 = raw.match(/^([A-Za-z]{3,9})-(\d{1,2})-(\d{2,4})$/);
+  if (monDash2) {
+    const [, mon, d, yr] = monDash2;
+    const m = MONTH_NAMES[mon.toLowerCase()];
+    if (m) return `${yr.length === 2 ? "20" + yr : yr}-${m}-${d.padStart(2, "0")}`;
+  }
+
+  // "Jan 15, 2024" or "January 15, 2024" or "15 Jan 2024"
+  const monthNameMatch = raw.match(/^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})$/) ||
+                         raw.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/);
+  if (monthNameMatch) {
+    const [, a, b, c] = monthNameMatch;
+    // Is first part a month name or a day?
+    const mA = MONTH_NAMES[a.toLowerCase()];
+    const mB = MONTH_NAMES[b.toLowerCase()];
+    if (mA) return `${c}-${mA}-${b.padStart(2, "0")}`;       // Jan 15, 2024
+    if (mB) return `${c}-${mB}-${a.padStart(2, "0")}`;       // 15 Jan 2024
+  }
+
+  // DD/Mon/YYYY or Mon/DD/YYYY
+  const slashMon = raw.match(/^(\d{1,2})\/([A-Za-z]{3,9})\/(\d{2,4})$/) ||
+                   raw.match(/^([A-Za-z]{3,9})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMon) {
+    const [, a, b, c] = slashMon;
+    const mA = MONTH_NAMES[a.toLowerCase()];
+    const mB = MONTH_NAMES[b.toLowerCase()];
+    const yr = c.length === 2 ? "20" + c : c;
+    if (mA) return `${yr}-${mA}-${b.padStart(2, "0")}`;
+    if (mB) return `${yr}-${mB}-${a.padStart(2, "0")}`;
+  }
+
   // Excel serial date (number)
   const num = Number(raw);
   if (!isNaN(num) && num > 40000 && num < 60000) {
     const d = XLSX.SSF.parse_date_code(num);
     if (d) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
   }
-  // Try native Date parse as last resort
-  const parsed = new Date(raw);
-  if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-  return raw;
+
+  // Try native Date parse as last resort (handles ISO strings with time, etc.)
+  try {
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 2000 && parsed.getFullYear() < 2100) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  } catch { /* ignore */ }
+
+  return "";
 }
 
 function stripMoney(s: string): number {
@@ -67,44 +128,138 @@ function stripMoney(s: string): number {
 
 // ── CSV/TSV Parser ────────────────────────────────────────────────────────────
 
+function splitCsvLine(line: string, sep: string): string[] {
+  // Handle quoted fields properly
+  if (!line.includes('"')) return line.split(sep).map(c => c.trim());
+  const result: string[] = [];
+  let cur = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === sep && !inQuote) {
+      result.push(cur.trim()); cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
 function parseCsvTsv(content: string, sep = ","): ParsedTx[] {
   const lines = content.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
-  const header = lines[0].replace(/"/g, "").split(sep).map(h => h.trim().toLowerCase());
 
-  const idx = (terms: string[]) => header.findIndex(h => terms.some(t => h.includes(t)));
+  // Detect whether the first non-empty row is a header or a data row.
+  // If the first cell of that row looks like a date, it's probably headerless data.
+  let headerRowIdx = 0;
+  let isHeaderless = false;
 
-  const dateIdx = idx(["date"]);
-  const descIdx = idx(["desc", "narration", "memo", "detail", "payee", "note", "ref"]);
-  const amtIdx  = idx(["amount", "value", "total", "sum"]);
-  const debitIdx = idx(["debit", "withdrawal", "charge", "withdraw"]);
-  const creditIdx = idx(["credit", "deposit", "payment", "receive"]);
-  const balanceIdx = idx(["balance", "running"]);
+  for (let r = 0; r < Math.min(10, lines.length); r++) {
+    const cells = splitCsvLine(lines[r], sep);
+    if (cells.filter(c => c !== "").length >= 2) {
+      headerRowIdx = r;
+      const firstCell = cells[0].replace(/"/g, "").trim();
+      // If the first cell normalises to a valid date, the row is data (no headers)
+      const testDate = normalizeDate(firstCell);
+      if (testDate && /^\d{4}-\d{2}-\d{2}$/.test(testDate)) isHeaderless = true;
+      break;
+    }
+  }
+
+  const header = isHeaderless
+    // Synthesise positional header names so the rest of the logic still works
+    ? splitCsvLine(lines[headerRowIdx], sep).map((_, i) => `col${i}`)
+    : splitCsvLine(lines[headerRowIdx], sep).map(h => h.replace(/"/g, "").trim().toLowerCase());
+
+  // Flexible column matching — order matters (first match wins)
+  const idx = (terms: string[]) => {
+    for (const t of terms) {
+      const i = header.findIndex(h => h === t);
+      if (i >= 0) return i;
+    }
+    for (const t of terms) {
+      const i = header.findIndex(h => h.includes(t));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const dateIdx   = idx(["date", "trans date", "transaction date", "post date", "posted date", "posting date", "value date", "trans.", "transaction", "posted"]);
+  const descIdx   = idx(["description", "desc", "narration", "memo", "details", "detail", "payee", "note", "notes", "reference", "ref", "particulars", "remarks", "transaction description", "name"]);
+  const amtIdx    = idx(["amount", "value", "total", "sum", "net amount", "transaction amount"]);
+  const debitIdx  = idx(["debit", "withdrawal", "withdrawals", "charge", "charges", "withdraw", "debit amount", "money out", "out", "dr"]);
+  const creditIdx = idx(["credit", "deposit", "deposits", "payment", "payments", "receive", "credit amount", "money in", "in", "cr"]);
+  const typeIdx   = idx(["type", "transaction type", "dr/cr", "dr cr", "debit/credit"]);
+
+  // If we still can't find a date column, try column 0 if it looks like dates
+  const effectiveDateIdx = dateIdx >= 0 ? dateIdx : 0;
 
   const txns: ParsedTx[] = [];
+  // For headerless files, start parsing from the first data row (same as headerRowIdx).
+  // For files with headers, skip the header row (headerRowIdx + 1).
+  const dataStartIdx = isHeaderless ? headerRowIdx : headerRowIdx + 1;
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = dataStartIdx; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    const cols = line.replace(/"/g, "").split(sep).map(c => c.trim());
+    const cols = splitCsvLine(line, sep);
 
-    const rawDate = cols[dateIdx] ?? "";
+    const rawDate = cols[effectiveDateIdx] ?? "";
+    if (!rawDate) continue;
     const date = normalizeDate(rawDate);
-    if (!date) continue;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
 
-    const description = cols[descIdx] ?? `Transaction ${i}`;
-
-    if (amtIdx >= 0 && cols[amtIdx]) {
-      const raw = cols[amtIdx].replace(/[$,\s]/g, "");
-      const val = parseFloat(raw) || 0;
-      if (val !== 0) {
-        txns.push({ date, description, amount: Math.abs(val), type: val >= 0 ? "credit" : "debit" });
+    // For headerless files, try to find the description from non-date, non-numeric columns
+    let description = descIdx >= 0 ? cols[descIdx] : undefined;
+    if (!description && isHeaderless) {
+      for (let c = cols.length - 1; c >= 0; c--) {
+        if (c === effectiveDateIdx) continue;
+        const cell = cols[c];
+        if (cell && !/^[\d\s$,.()-]+$/.test(cell) && cell !== "*") {
+          description = cell; break;
+        }
       }
+    }
+    description = description || `Transaction ${i}`;
+
+    // Determine amount and type
+    if (amtIdx >= 0 && cols[amtIdx] !== undefined && cols[amtIdx] !== "") {
+      const raw = (cols[amtIdx] || "").replace(/[$,\s()]/g, "");
+      // Some banks use parentheses for negatives: (123.45) → -123.45
+      const negative = cols[amtIdx].trim().startsWith("(") || (cols[amtIdx].trim().startsWith("-"));
+      const val = negative ? -Math.abs(parseFloat(raw) || 0) : (parseFloat(raw) || 0);
+      if (val === 0) continue;
+
+      // Check if a type/DR/CR column says which direction
+      let type: "debit" | "credit" = val < 0 ? "debit" : "credit";
+      if (typeIdx >= 0 && cols[typeIdx]) {
+        const t = cols[typeIdx].toLowerCase().trim();
+        if (t === "dr" || t === "debit" || t === "d") type = "debit";
+        else if (t === "cr" || t === "credit" || t === "c") type = "credit";
+      }
+      txns.push({ date, description, amount: Math.abs(val), type });
+
     } else if (debitIdx >= 0 || creditIdx >= 0) {
-      const debit  = debitIdx  >= 0 ? stripMoney(cols[debitIdx]  || "0") : 0;
-      const credit = creditIdx >= 0 ? stripMoney(cols[creditIdx] || "0") : 0;
-      if (debit > 0) txns.push({ date, description, amount: debit, type: "debit" });
+      const debit  = debitIdx  >= 0 ? stripMoney(cols[debitIdx]  ?? "0") : 0;
+      const credit = creditIdx >= 0 ? stripMoney(cols[creditIdx] ?? "0") : 0;
+      if (debit > 0)  txns.push({ date, description, amount: debit,  type: "debit" });
       if (credit > 0) txns.push({ date, description, amount: credit, type: "credit" });
+
+    } else {
+      // Last resort: scan all numeric columns in the row to find an amount
+      for (let c = 0; c < cols.length; c++) {
+        if (c === effectiveDateIdx || c === descIdx) continue;
+        const raw = (cols[c] || "").replace(/[$,\s()]/g, "");
+        const val = parseFloat(raw);
+        if (!isNaN(val) && val !== 0 && Math.abs(val) < 1_000_000) {
+          txns.push({ date, description, amount: Math.abs(val), type: val < 0 ? "debit" : "credit" });
+          break;
+        }
+      }
     }
   }
 
@@ -453,7 +608,10 @@ router.post("/businesses/:businessId/upload/statement", upload.single("file"), a
     // Auto-categorize each transaction
     const categorized = await Promise.all(
       transactions.map(async (tx) => {
-        const cat = await autoCategorize(tx.description, tx.amount, businessId, accountsByCode);
+        // Pass signed amount: negative for debits (money out), positive for credits (money in)
+        // so that autoCategorize can correctly filter expense vs income accounts
+        const signedAmt = tx.type === "debit" ? -Math.abs(tx.amount) : Math.abs(tx.amount);
+        const cat = await autoCategorize(tx.description, signedAmt, businessId, accountsByCode);
         return { ...tx, ...cat };
       })
     );
