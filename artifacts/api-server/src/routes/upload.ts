@@ -7,10 +7,29 @@ import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 import { createRequire } from "node:module";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const _require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pdfParse: (buf: Buffer) => Promise<{ text: string; numpages: number }> = _require("pdf-parse");
+const { PDFParse } = _require("pdf-parse") as { PDFParse: new (opts: { url: string; verbosity: number }) => { getText: () => Promise<{ text: string }>; destroy: () => void } };
+
+async function pdfToText(buf: Buffer): Promise<string> {
+  // pdf-parse v2 requires a file URL — write buffer to a temp file, parse, then clean up
+  const tmpFile = join(tmpdir(), `cl-pdf-${Date.now()}.pdf`);
+  try {
+    writeFileSync(tmpFile, buf);
+    const parser = new PDFParse({ url: `file://${tmpFile}`, verbosity: 0 });
+    try {
+      const result = await parser.getText();
+      return result.text ?? "";
+    } finally {
+      parser.destroy();
+    }
+  } finally {
+    try { unlinkSync(tmpFile); } catch { /* ignore */ }
+  }
+}
 
 const router: IRouter = Router();
 router.use(authMiddleware);
@@ -394,11 +413,11 @@ function parseBankStatementPdf(text: string): ParsedTx[] {
   type SectionType = "credit" | "debit" | "none";
   let section: SectionType = "none";
 
-  // Chase PDFs: amount appears on the same line as the date, but continuation
-  // lines follow (trace numbers, etc.) with no amount — so we must NOT anchor
-  // to end-of-string. Find the LAST $ amount anywhere in the combined block.
-  const dollarAmtRe = /\$([\d,]+\.\d{2})/g;
-  const amountRe    = /\$?([\d,]+\.\d{2})\s*$/; // still used for quick "has amount at end" check
+  // Chase PDFs: amount appears on the same line as the date (or at end of a continuation
+  // block). First transaction in each section uses $, rest are bare numbers.
+  // Match both: "$3,000.00" and "3,202.00" but not raw IDs (which lack the comma-decimal pattern).
+  const dollarAmtRe = /\$?((?:\d{1,3},)*\d{1,3}\.\d{2})/g;
+  const amountRe    = /\$?((?:\d{1,3},)*\d{1,3}\.\d{2})\s*$/; // used for "has amount at end of line" check
   const dateRe      = /^(\d{1,2}\/\d{2})\b/;
 
   const skipPatterns = [
@@ -406,32 +425,49 @@ function parseBankStatementPdf(text: string): ParsedTx[] {
     /^account number/i, /^page \d/i, /^\*(?:start|end)\*/i,
     /^chase\b/i, /^po box/i, /^checking summary/i, /^instances\s/i,
     /^deposits and additions\s*$/i, /^atm & debit/i, /^electronic withdrawal\s*$/i,
+    /^electronic withdrawals\s*$/i, /^electronic withdrawals\s*\(continued\)\s*$/i,
     /^how to avoid/i, /^if you meet/i, /^congratulations/i, /^important update/i,
     /^beginning january/i, /^were here/i, /^for more information/i,
     /^web site/i, /^service center/i, /^para espanol/i, /^international calls/i,
+    /^daily ending balance/i, /^in case of errors/i, /^call us at/i,
+    /^-- \d+ of \d+ --/i, /^\d+ \d+page of/i, /^this page intentionally/i,
+    /^jpmorgan chase/i, /^member fdic/i,
   ];
 
   function sectionOf(line: string): SectionType | null {
     const l = line.toLowerCase();
     if (/deposits and additions/.test(l) || /\*start\*deposits/.test(l)) return "credit";
     if (/electronic withdrawal/.test(l) || /atm.*debit.*withdrawal/.test(l) || /\*start\*atm/.test(l) ||
-        /\*start\*electronic/.test(l) || /\*start\*fees/.test(l) || /^fees\s*$/.test(l) ||
+        /\*start\*electronic/.test(l) || /\*start\*fees/.test(l) || /^fees\s*$/i.test(l) ||
         /other withdrawal/.test(l) || /\*start\*other/.test(l)) return "debit";
+    // Stop parsing at daily ending balance (just a balance table, not transactions)
+    if (/daily ending balance/.test(l)) return "none";
     return null;
   }
 
   function cleanDesc(d: string): string {
     return d
+      // Remove ACH/NACHA technical fields
       .replace(/Orig CO Name:/gi, "")
       .replace(/Orig ID:[A-Z0-9]+/gi, "")
-      .replace(/Desc Date:\d+/gi, "")
-      .replace(/CO Entry Descr:\w+/gi, "")
-      .replace(/Sec:(?:CCD|PPD|WEB|CTX)/gi, "")
+      .replace(/Desc Date:[A-Z0-9]*/gi, "")
+      .replace(/CO Entry\s*Descr:[A-Za-z]*/gi, "CO Entry")
+      .replace(/\bCO Entry\b/gi, "")
+      .replace(/Sec:(?:CCD|PPD|WEB|CTX|TEL)/gi, "")
       .replace(/Trace#:\d+/gi, "")
       .replace(/Eed:\d+/gi, "")
       .replace(/Ind ID:[^\s]+/gi, "")
       .replace(/Ind Name:/gi, "")
-      .replace(/Trn:\s*\S+/gi, "")
+      .replace(/Trn:\s*\S+(?:Tc)?/gi, "")
+      // Remove bare "Descr:" prefix followed by short word
+      .replace(/Descr:[A-Za-z]*/gi, "")
+      // Remove Zelle/ACH transaction reference IDs (alphanumeric 8+ chars: Jpm99C7Kcl8V, 28245620043)
+      .replace(/\b(?:[A-Z][a-z0-9]{2,}[A-Z][A-Za-z0-9]{4,}|[0-9]{8,})\b/g, "")
+      // Remove long ALL-CAPS IDs (8+ uppercase chars/digits like GDXLK2VV)
+      .replace(/\b[A-Z0-9]{8,}\b/g, "")
+      // Remove bare ":PPD", ":CCD" remnants
+      .replace(/:[A-Z]{3}/g, "")
+      .replace(/\s*[.:\s]+$/, "")
       .replace(/\s{2,}/g, " ")
       .trim() || "Bank Transaction";
   }
@@ -622,8 +658,8 @@ router.post("/businesses/:businessId/upload/statement", upload.single("file"), a
 
     if (ext === "pdf" || mime === "application/pdf") {
       format = "pdf";
-      const data = await pdfParse(req.file.buffer);
-      transactions = parseBankStatementPdf(data.text);
+      const text = await pdfToText(req.file.buffer);
+      transactions = parseBankStatementPdf(text);
 
     } else if (ext === "ofx" || ext === "qfx" || ext === "qbo" ||
                mime.includes("ofx") || mime.includes("qif")) {
