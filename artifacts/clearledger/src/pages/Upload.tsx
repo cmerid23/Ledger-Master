@@ -6,7 +6,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Upload, CheckCircle, FileText, X, Pencil, AlertCircle } from "lucide-react";
+import { Upload, CheckCircle, FileText, X, Pencil, AlertCircle, Tag, Zap } from "lucide-react";
 
 interface Props {
   businessId: number;
@@ -17,6 +17,11 @@ interface ParsedTx {
   description: string;
   amount: number;
   type: "debit" | "credit";
+  accountId?: number | null;
+  suggestedAccountId?: number | null;
+  suggestedAccountName?: string | null;
+  suggestedBy?: string | null;
+  suggestedConfidence?: number | null;
 }
 
 const ACCEPTED_EXTENSIONS = [".csv", ".pdf", ".ofx", ".qfx", ".qbo", ".xlsx", ".xls", ".tsv", ".txt"];
@@ -36,6 +41,19 @@ function formatBadge(fmt: string) {
   return map[fmt] ?? fmt.toUpperCase();
 }
 
+function ConfidenceBadge({ by, confidence }: { by?: string | null; confidence?: number | null }) {
+  if (!by || !confidence) return null;
+  const pct = Math.round(confidence * 100);
+  const color = pct >= 80 ? "text-emerald-700 bg-emerald-50" : pct >= 50 ? "text-amber-700 bg-amber-50" : "text-rose-700 bg-rose-50";
+  const label = by.startsWith("rule:") ? "rule" : by.startsWith("keyword:") ? "auto" : "guess";
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${color}`}>
+      <Zap className="w-2.5 h-2.5" />
+      {label} {pct}%
+    </span>
+  );
+}
+
 export default function UploadPage({ businessId }: Props) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -43,8 +61,8 @@ export default function UploadPage({ businessId }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParsedTx[] | null>(null);
   const [format, setFormat] = useState("");
-  const [selectedAccount, setSelectedAccount] = useState("");
   const [imported, setImported] = useState<number | null>(null);
+  const [journalPosted, setJournalPosted] = useState<number | null>(null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
   const [editIdx, setEditIdx] = useState<number | null>(null);
@@ -53,11 +71,14 @@ export default function UploadPage({ businessId }: Props) {
   const { data: accounts } = useListAccounts(businessId, { query: { enabled: !!businessId } });
   const confirmUpload = useConfirmUpload();
 
+  const activeAccounts = accounts?.filter((a) => a.isActive) ?? [];
+
   function resetAll() {
     setFile(null);
     setParsed(null);
     setFormat("");
     setImported(null);
+    setJournalPosted(null);
     setError("");
     setEditIdx(null);
     setEditRow(null);
@@ -66,7 +87,7 @@ export default function UploadPage({ businessId }: Props) {
 
   function setSelectedFile(f: File) {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
-    const ok = ACCEPTED_EXTENSIONS.some(e => e === "." + ext) || f.type.startsWith("text/");
+    const ok = ACCEPTED_EXTENSIONS.some((e) => e === "." + ext) || f.type.startsWith("text/");
     if (!ok) { setError(`Unsupported file type: .${ext}`); return; }
     resetAll();
     setFile(f);
@@ -106,10 +127,15 @@ export default function UploadPage({ businessId }: Props) {
         setError("No transactions found. Check the file has date, description, and amount columns.");
         return;
       }
-      setParsed(json.transactions);
+      // Apply auto-suggested account as the default accountId for each transaction
+      const withDefaults: ParsedTx[] = json.transactions.map((tx: ParsedTx) => ({
+        ...tx,
+        accountId: tx.suggestedAccountId ?? null,
+      }));
+      setParsed(withDefaults);
       setFormat(json.format || "");
-    } catch (err: any) {
-      setError(err.message || "Error parsing file");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error parsing file");
     } finally {
       setParsing(false);
     }
@@ -121,16 +147,30 @@ export default function UploadPage({ businessId }: Props) {
     try {
       const result = await confirmUpload.mutateAsync({
         businessId,
-        data: {
-          transactions: parsed,
-          accountId: selectedAccount ? Number(selectedAccount) : null,
-        },
+        data: { transactions: parsed },
       });
       setImported(result.imported);
+      setJournalPosted((result as { journalEntriesPosted?: number }).journalEntriesPosted ?? null);
       queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey(businessId) });
-    } catch (err: any) {
-      setError(err?.data?.error || err?.message || "Error importing transactions");
+    } catch (err: unknown) {
+      const e = err as { data?: { error?: string }; message?: string };
+      setError(e?.data?.error || e?.message || "Error importing transactions");
     }
+  }
+
+  function setTxAccount(i: number, accountId: number | null) {
+    if (!parsed) return;
+    const next = [...parsed];
+    next[i] = { ...next[i], accountId };
+    setParsed(next);
+  }
+
+  function applyAllSuggestions() {
+    if (!parsed) return;
+    setParsed(parsed.map((tx) => ({
+      ...tx,
+      accountId: tx.suggestedAccountId ?? tx.accountId ?? null,
+    })));
   }
 
   function startEdit(i: number) {
@@ -152,8 +192,11 @@ export default function UploadPage({ businessId }: Props) {
     setParsed(parsed.filter((_, idx) => idx !== i));
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const categorizedCount = parsed?.filter((t) => !!t.accountId).length ?? 0;
+  const uncategorizedCount = (parsed?.length ?? 0) - categorizedCount;
+  const suggestedCount = parsed?.filter((t) => !!t.suggestedAccountId).length ?? 0;
 
+  // ── Success screen ──────────────────────────────────────────────────────────
   if (imported !== null) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
@@ -162,24 +205,36 @@ export default function UploadPage({ businessId }: Props) {
             <CheckCircle className="w-8 h-8 text-emerald-600" />
           </div>
           <h3 className="text-xl font-bold text-foreground mb-1">Import complete</h3>
-          <p className="text-muted-foreground text-sm mb-6">
+          <p className="text-muted-foreground text-sm mb-2">
             {imported} transaction{imported !== 1 ? "s" : ""} added to the General Ledger
           </p>
-          <button onClick={resetAll}
-            className="px-5 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
-            Upload another statement
-          </button>
+          {journalPosted !== null && journalPosted > 0 && (
+            <p className="text-emerald-600 text-sm font-medium mb-6">
+              {journalPosted} double-entry journal entr{journalPosted !== 1 ? "ies" : "y"} posted
+            </p>
+          )}
+          <div className="flex gap-3 justify-center">
+            <button onClick={resetAll}
+              className="px-5 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
+              Upload another statement
+            </button>
+            <a href="/reports"
+              className="px-5 py-2.5 rounded-md border border-input bg-background text-foreground text-sm font-medium hover:bg-muted transition-colors">
+              View P&amp;L Report
+            </a>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-5">
+    <div className="p-6 max-w-5xl mx-auto space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Upload Bank Statement</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Import transactions from any bank export format — PDF, CSV, Excel, OFX/QFX/QBO, and more
+          Import transactions from any bank export — PDF, CSV, Excel, OFX/QFX/QBO.
+          Transactions are automatically categorized against your chart of accounts.
         </p>
       </div>
 
@@ -203,7 +258,7 @@ export default function UploadPage({ businessId }: Props) {
                 <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
               </div>
               <button
-                onClick={e => { e.stopPropagation(); resetAll(); }}
+                onClick={(e) => { e.stopPropagation(); resetAll(); }}
                 className="ml-2 p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground"
               >
                 <X className="w-4 h-4" />
@@ -215,7 +270,7 @@ export default function UploadPage({ businessId }: Props) {
               <p className="text-sm font-semibold text-foreground">Drop your bank statement here</p>
               <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
               <div className="flex flex-wrap justify-center gap-1.5 mt-4">
-                {["PDF", "CSV", "Excel", "OFX", "QFX", "QBO", "TSV", "TXT"].map(f => (
+                {["PDF", "CSV", "Excel", "OFX", "QFX", "QBO", "TSV"].map((f) => (
                   <span key={f} className="px-2 py-0.5 bg-muted text-muted-foreground rounded text-xs font-mono">{f}</span>
                 ))}
               </div>
@@ -243,120 +298,148 @@ export default function UploadPage({ businessId }: Props) {
           disabled={!file || parsing}
           className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
-          {parsing ? "Parsing…" : "Parse transactions"}
+          {parsing ? "Parsing & categorizing…" : "Parse transactions"}
         </button>
       </div>
 
-      {/* Preview & import */}
+      {/* Preview & categorize */}
       {parsed && (
         <div className="bg-card border border-card-border rounded-xl overflow-hidden shadow-sm">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <div className="flex items-center gap-3">
-              <div>
-                <h3 className="font-semibold text-sm text-foreground">Step 2 — Review &amp; Import</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{parsed.length} transactions found</p>
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-border">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h3 className="font-semibold text-sm text-foreground">Step 2 — Review &amp; Categorize</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{parsed.length} transactions found</p>
+                </div>
+                {format && (
+                  <span className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs font-medium">
+                    {formatBadge(format)}
+                  </span>
+                )}
               </div>
-              {format && (
-                <span className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs font-medium">
-                  {formatBadge(format)}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              <select
-                value={selectedAccount}
-                onChange={e => setSelectedAccount(e.target.value)}
-                className="px-3 py-1.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">No account (categorize later)</option>
-                {accounts?.filter(a => a.isActive).map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
               <button
                 onClick={handleImport}
                 disabled={confirmUpload.isPending || parsed.length === 0}
                 className="px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
-                {confirmUpload.isPending ? "Importing…" : `Import ${parsed.length}`}
+                {confirmUpload.isPending ? "Importing…" : `Post ${parsed.length} to Books`}
               </button>
+            </div>
+
+            {/* Summary bar */}
+            <div className="flex flex-wrap items-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="text-muted-foreground">{parsed.filter((t) => t.type === "credit").length} deposits</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span className="text-muted-foreground">{parsed.filter((t) => t.type === "debit").length} withdrawals</span>
+              </span>
+              <span className="flex items-center gap-1.5 text-emerald-700">
+                <Tag className="w-3 h-3" />
+                {categorizedCount} categorized
+              </span>
+              {uncategorizedCount > 0 && (
+                <span className="text-amber-700 font-medium">
+                  {uncategorizedCount} need category
+                </span>
+              )}
+              {suggestedCount > 0 && (
+                <button
+                  onClick={applyAllSuggestions}
+                  className="flex items-center gap-1 text-primary hover:underline"
+                >
+                  <Zap className="w-3 h-3" />
+                  Apply all {suggestedCount} suggestions
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="max-h-[480px] overflow-y-auto">
+          {/* Table */}
+          <div className="max-h-[520px] overflow-y-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+              <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
                 <tr className="border-b border-border">
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase w-28">Date</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase">Description</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase w-32">Amount</th>
-                  <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground uppercase w-20">Type</th>
-                  <th className="px-4 py-2.5 w-16" />
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase w-24">Date</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase">Description</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase w-28">Amount</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase w-52">Category</th>
+                  <th className="px-3 py-2.5 w-12" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {parsed.map((tx, i) =>
                   editIdx === i ? (
                     <tr key={i} className="bg-muted/30">
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <input
                           type="date"
                           value={editRow!.date}
-                          onChange={e => setEditRow(r => ({ ...r!, date: e.target.value }))}
+                          onChange={(e) => setEditRow((r) => ({ ...r!, date: e.target.value }))}
                           className="w-full rounded border border-input bg-background px-2 py-1 text-xs"
                         />
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <input
                           value={editRow!.description}
-                          onChange={e => setEditRow(r => ({ ...r!, description: e.target.value }))}
+                          onChange={(e) => setEditRow((r) => ({ ...r!, description: e.target.value }))}
                           className="w-full rounded border border-input bg-background px-2 py-1 text-xs"
                         />
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <input
                           type="number"
                           step="0.01"
                           value={editRow!.amount}
-                          onChange={e => setEditRow(r => ({ ...r!, amount: parseFloat(e.target.value) || 0 }))}
+                          onChange={(e) => setEditRow((r) => ({ ...r!, amount: parseFloat(e.target.value) || 0 }))}
                           className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-right"
                         />
                       </td>
-                      <td className="px-4 py-2 text-center">
-                        <select
-                          value={editRow!.type}
-                          onChange={e => setEditRow(r => ({ ...r!, type: e.target.value as "debit" | "credit" }))}
-                          className="rounded border border-input bg-background px-1 py-1 text-xs"
-                        >
-                          <option value="credit">credit</option>
-                          <option value="debit">debit</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        <button onClick={saveEdit} className="text-xs font-medium text-primary hover:underline">Save</button>
+                      <td className="px-3 py-2" colSpan={2}>
+                        <button onClick={saveEdit} className="text-xs font-medium text-primary hover:underline mr-3">Save</button>
+                        <button onClick={() => setEditIdx(null)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
                       </td>
                     </tr>
                   ) : (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors group">
-                      <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap text-xs">{formatDate(tx.date)}</td>
-                      <td className="px-4 py-2.5 text-foreground max-w-xs">
-                        <span className="block truncate">{tx.description}</span>
+                    <tr key={i} className={`hover:bg-muted/20 transition-colors group ${!tx.accountId ? "bg-amber-50/30" : ""}`}>
+                      <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap text-xs">{formatDate(tx.date)}</td>
+                      <td className="px-3 py-2.5 text-foreground max-w-[180px]">
+                        <span className="block truncate text-xs">{tx.description}</span>
                       </td>
-                      <td className={`px-4 py-2.5 text-right font-medium tabular-nums ${tx.type === "credit" ? "text-emerald-600" : "text-rose-600"}`}>
+                      <td className={`px-3 py-2.5 text-right font-medium tabular-nums text-xs ${tx.type === "credit" ? "text-emerald-600" : "text-rose-600"}`}>
                         {tx.type === "credit" ? "+" : "−"}{formatCurrency(tx.amount)}
                       </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${tx.type === "credit" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                          {tx.type}
-                        </span>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={tx.accountId ?? ""}
+                            onChange={(e) => setTxAccount(i, e.target.value ? Number(e.target.value) : null)}
+                            className={`flex-1 rounded border text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring bg-background
+                              ${!tx.accountId ? "border-amber-300 text-muted-foreground" : "border-input text-foreground"}`}
+                          >
+                            <option value="">— unassigned —</option>
+                            {activeAccounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.code ? `${a.code} · ` : ""}{a.name}
+                              </option>
+                            ))}
+                          </select>
+                          {tx.suggestedAccountId && tx.suggestedBy && (
+                            <ConfidenceBadge by={tx.suggestedBy} confidence={tx.suggestedConfidence} />
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => startEdit(i)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground">
-                            <Pencil className="w-3.5 h-3.5" />
+                            <Pencil className="w-3 h-3" />
                           </button>
                           <button onClick={() => removeRow(i)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
-                            <X className="w-3.5 h-3.5" />
+                            <X className="w-3 h-3" />
                           </button>
                         </div>
                       </td>
@@ -368,10 +451,10 @@ export default function UploadPage({ businessId }: Props) {
           </div>
 
           <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Hover a row to edit or remove it before importing</span>
+            <span>Rows highlighted in amber have no category — they will import without a journal entry</span>
             <span>
-              {parsed.filter(t => t.type === "credit").length} deposits &nbsp;·&nbsp;
-              {parsed.filter(t => t.type === "debit").length} withdrawals
+              {formatCurrency(parsed.filter((t) => t.type === "credit").reduce((s, t) => s + t.amount, 0))} in &nbsp;·&nbsp;
+              {formatCurrency(parsed.filter((t) => t.type === "debit").reduce((s, t) => s + t.amount, 0))} out
             </span>
           </div>
         </div>
@@ -398,6 +481,16 @@ export default function UploadPage({ businessId }: Props) {
               <p className="font-medium text-foreground">OFX / QFX / QBO</p>
               <p>Standard financial data exchange formats from Quicken, QuickBooks, and most banks.</p>
             </div>
+          </div>
+          <div className="mt-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+            <p className="text-xs text-primary font-medium flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5" />
+              Auto-categorization included
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              After parsing, each transaction is automatically matched against your chart of accounts
+              using keyword matching and bank rules. You can review and adjust before importing.
+            </p>
           </div>
         </div>
       )}

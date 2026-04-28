@@ -17,3 +17,4 @@ export * from "./timeEntries";
 export * from "./proposals";
 export * from "./apiKeys";
 export * from "./recurringSchedules";
+export * from "./bankRules";

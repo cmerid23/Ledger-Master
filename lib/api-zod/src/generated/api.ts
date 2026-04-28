@@ -332,9 +332,14 @@ export const ConfirmUploadBody = zod.object({
       description: zod.string(),
       amount: zod.number(),
       type: zod.enum(["debit", "credit"]),
+      accountId: zod.number().nullish(),          // per-transaction category
+      suggestedAccountId: zod.number().nullish(),
+      suggestedAccountName: zod.string().nullish(),
+      suggestedBy: zod.string().nullish(),
+      suggestedConfidence: zod.number().nullish(),
     }),
   ),
-  accountId: zod.number().nullish(),
+  accountId: zod.number().nullish(), // global fallback
 });
 
 /**

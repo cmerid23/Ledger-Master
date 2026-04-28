@@ -62,16 +62,30 @@ export default function ReportsPage({ businessId }: Props) {
       ];
       downloadCsv(rows, `monthly-pl-${startDate}-${endDate}.csv`);
     } else if (tab === "pl" && pl) {
-      const rows = [
+      const plData = pl as typeof pl & {
+        cogs?: { items: { accountId: number; accountName: string; accountCode?: string | null; amount: number }[]; total: number };
+        grossProfit?: number;
+        grossMargin?: number;
+        netMargin?: number;
+      };
+      const rows: string[][] = [
         ["Account", "Amount"],
         ["--- INCOME ---", ""],
-        ...pl.income.items.map((i) => [i.accountName, i.amount.toString()]),
-        ["Total Income", pl.income.total.toString()],
-        ["--- EXPENSES ---", ""],
-        ...pl.expenses.items.map((i) => [i.accountName, i.amount.toString()]),
-        ["Total Expenses", pl.expenses.total.toString()],
-        ["Net Profit", pl.netProfit.toString()],
+        ...pl.income.items.map((i) => [i.accountName, i.amount.toFixed(2)]),
+        ["Total Income", pl.income.total.toFixed(2)],
       ];
+      if (plData.cogs && plData.cogs.items.length > 0) {
+        rows.push(["--- COST OF GOODS SOLD ---", ""]);
+        plData.cogs.items.forEach((i) => rows.push([i.accountName, i.amount.toFixed(2)]));
+        rows.push(["Total COGS", plData.cogs.total.toFixed(2)]);
+        rows.push(["Gross Profit", (plData.grossProfit ?? 0).toFixed(2)]);
+      }
+      rows.push(
+        ["--- OPERATING EXPENSES ---", ""],
+        ...pl.expenses.items.map((i) => [i.accountName, i.amount.toFixed(2)]),
+        ["Total Expenses", pl.expenses.total.toFixed(2)],
+        ["Net Profit", pl.netProfit.toFixed(2)],
+      );
       downloadCsv(rows, `profit-loss-${startDate}-${endDate}.csv`);
     }
   }
@@ -222,46 +236,106 @@ export default function ReportsPage({ businessId }: Props) {
           </div>
           {plLoading ? (
             <div className="p-6 space-y-3">{[1,2,3].map(i=><div key={i} className="h-8 bg-muted animate-pulse rounded"/>)}</div>
-          ) : pl ? (
-            <div>
-              <div className="px-5 py-3 bg-emerald-50/50 border-b border-border">
-                <h3 className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">Income</h3>
-                {pl.income.items.length === 0 && (
-                  <p className="text-xs text-muted-foreground py-1">No income accounts or unassigned deposits found.</p>
-                )}
-                {pl.income.items.map((item) => (
-                  <div key={item.accountId} className="flex justify-between py-1.5 text-sm">
-                    <span className="text-foreground">{item.accountCode ? `${item.accountCode} · ` : ""}{item.accountName}</span>
-                    <span className="font-medium text-emerald-700">{formatCurrency(item.amount)}</span>
+          ) : pl ? (() => {
+            const plData = pl as typeof pl & {
+              cogs?: { title: string; items: { accountId: number; accountName: string; accountCode?: string | null; amount: number }[]; total: number };
+              grossProfit?: number;
+              grossMargin?: number;
+              netMargin?: number;
+            };
+            return (
+              <div>
+                {/* Income section */}
+                <div className="px-5 py-3 bg-emerald-50/50 border-b border-border">
+                  <h3 className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">Income</h3>
+                  {pl.income.items.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-1">No income accounts or unassigned deposits found.</p>
+                  )}
+                  {pl.income.items.map((item) => (
+                    <div key={item.accountId} className="flex justify-between py-1.5 text-sm">
+                      <span className="text-foreground">{item.accountCode ? `${item.accountCode} · ` : ""}{item.accountName}</span>
+                      <span className="font-medium text-emerald-700">{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between py-2 border-t border-border mt-1 font-semibold text-sm">
+                    <span>Total Income</span>
+                    <span className="text-emerald-600">{formatCurrency(pl.income.total)}</span>
                   </div>
-                ))}
-                <div className="flex justify-between py-2 border-t border-border mt-1 font-semibold text-sm">
-                  <span>Total Income</span>
-                  <span className="text-emerald-600">{formatCurrency(pl.income.total)}</span>
+                </div>
+
+                {/* COGS section (only shown when there are COGS accounts) */}
+                {plData.cogs && (plData.cogs.items.length > 0 || pl.income.total > 0) && (
+                  <div className="px-5 py-3 bg-orange-50/50 border-b border-border">
+                    <h3 className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Cost of Goods Sold</h3>
+                    {plData.cogs.items.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-1">No COGS recorded for this period.</p>
+                    ) : (
+                      plData.cogs.items.map((item) => (
+                        <div key={item.accountId} className="flex justify-between py-1.5 text-sm">
+                          <span className="text-foreground">{item.accountCode ? `${item.accountCode} · ` : ""}{item.accountName}</span>
+                          <span className="font-medium text-orange-700">{formatCurrency(item.amount)}</span>
+                        </div>
+                      ))
+                    )}
+                    <div className="flex justify-between py-2 border-t border-border mt-1 font-semibold text-sm">
+                      <span>Total COGS</span>
+                      <span className="text-orange-600">{formatCurrency(plData.cogs.total)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Gross Profit subtotal (when COGS section exists) */}
+                {plData.cogs && plData.grossProfit !== undefined && (
+                  <div className="px-5 py-3 border-b border-border bg-muted/20">
+                    <div className="flex justify-between font-semibold text-sm">
+                      <span className="text-foreground">Gross Profit</span>
+                      <div className="flex items-center gap-3">
+                        {plData.grossMargin !== undefined && (
+                          <span className="text-xs text-muted-foreground">{plData.grossMargin.toFixed(1)}% margin</span>
+                        )}
+                        <span className={plData.grossProfit >= 0 ? "text-emerald-600" : "text-rose-600"}>
+                          {formatCurrency(plData.grossProfit)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Operating Expenses */}
+                <div className="px-5 py-3 bg-rose-50/50 border-b border-border">
+                  <h3 className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-2">
+                    {plData.cogs ? "Operating Expenses" : "Expenses"}
+                  </h3>
+                  {pl.expenses.items.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-1">No expense accounts or unassigned withdrawals found.</p>
+                  )}
+                  {pl.expenses.items.map((item) => (
+                    <div key={item.accountId} className="flex justify-between py-1.5 text-sm">
+                      <span className="text-foreground">{item.accountCode ? `${item.accountCode} · ` : ""}{item.accountName}</span>
+                      <span className="font-medium text-rose-700">{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between py-2 border-t border-border mt-1 font-semibold text-sm">
+                    <span>Total Expenses</span>
+                    <span className="text-rose-600">{formatCurrency(pl.expenses.total)}</span>
+                  </div>
+                </div>
+
+                {/* Net Profit */}
+                <div className="px-5 py-4 flex justify-between font-bold text-base border-t-2 border-border">
+                  <span>Net Profit</span>
+                  <div className="flex items-center gap-3">
+                    {plData.netMargin !== undefined && (
+                      <span className="text-sm text-muted-foreground font-normal">{plData.netMargin.toFixed(1)}% margin</span>
+                    )}
+                    <span className={pl.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}>
+                      {formatCurrency(pl.netProfit)}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div className="px-5 py-3 bg-rose-50/50 border-b border-border">
-                <h3 className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-2">Expenses</h3>
-                {pl.expenses.items.length === 0 && (
-                  <p className="text-xs text-muted-foreground py-1">No expense accounts or unassigned withdrawals found.</p>
-                )}
-                {pl.expenses.items.map((item) => (
-                  <div key={item.accountId} className="flex justify-between py-1.5 text-sm">
-                    <span className="text-foreground">{item.accountCode ? `${item.accountCode} · ` : ""}{item.accountName}</span>
-                    <span className="font-medium text-rose-700">{formatCurrency(item.amount)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-2 border-t border-border mt-1 font-semibold text-sm">
-                  <span>Total Expenses</span>
-                  <span className="text-rose-600">{formatCurrency(pl.expenses.total)}</span>
-                </div>
-              </div>
-              <div className="px-5 py-4 flex justify-between font-bold text-base">
-                <span>Net Profit</span>
-                <span className={pl.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}>{formatCurrency(pl.netProfit)}</span>
-              </div>
-            </div>
-          ) : null}
+            );
+          })() : null}
         </div>
       )}
 

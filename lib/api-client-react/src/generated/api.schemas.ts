@@ -227,6 +227,16 @@ export interface ParsedTransaction {
   description: string;
   amount: number;
   type: ParsedTransactionType;
+  /** @nullable — per-transaction account assignment (overrides global accountId) */
+  accountId?: number | null;
+  /** @nullable — suggested account from auto-categorization */
+  suggestedAccountId?: number | null;
+  /** @nullable — suggested account name for display */
+  suggestedAccountName?: string | null;
+  /** @nullable — which rule or pattern matched */
+  suggestedBy?: string | null;
+  /** @nullable — confidence score 0–1 */
+  suggestedConfidence?: number | null;
 }
 
 export interface UploadCsvBody {
@@ -240,7 +250,7 @@ export interface ParsedTransactionsResponse {
 
 export interface ConfirmUploadBody {
   transactions: ParsedTransaction[];
-  /** @nullable */
+  /** @nullable — global fallback account if no per-transaction accountId */
   accountId?: number | null;
 }
 

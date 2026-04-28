@@ -29,6 +29,7 @@ import apiKeysRouter from "./apiKeys";
 import clientPortalRouter from "./clientPortal";
 import recurringBillingRouter from "./recurringBilling";
 import aiRouter from "./ai";
+import bankRulesRouter from "./bankRules";
 
 const router: IRouter = Router();
 
@@ -62,5 +63,6 @@ router.use(apiKeysRouter);
 router.use(clientPortalRouter);
 router.use(recurringBillingRouter);
 router.use(aiRouter);
+router.use(bankRulesRouter);
 
 export default router;

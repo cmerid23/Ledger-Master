@@ -25,22 +25,13 @@ async function verifyBusinessOwnership(businessId: number, userId: number): Prom
 
 router.get("/businesses/:businessId/reports/profit-loss", async (req: AuthRequest, res): Promise<void> => {
   const params = GetProfitLossReportParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
   const owned = await verifyBusinessOwnership(params.data.businessId, req.userId!);
-  if (!owned) {
-    res.status(404).json({ error: "Business not found" });
-    return;
-  }
+  if (!owned) { res.status(404).json({ error: "Business not found" }); return; }
 
   const query = GetProfitLossReportQueryParams.safeParse(req.query);
-  if (!query.success) {
-    res.status(400).json({ error: query.error.message });
-    return;
-  }
+  if (!query.success) { res.status(400).json({ error: query.error.message }); return; }
 
   const { startDate, endDate } = query.data;
   const businessId = params.data.businessId;
@@ -50,44 +41,51 @@ router.get("/businesses/:businessId/reports/profit-loss", async (req: AuthReques
     .from(accountsTable)
     .where(and(eq(accountsTable.businessId, businessId), eq(accountsTable.isActive, true)));
 
-  const incomeAccounts = accounts.filter((a) => a.type === "income");
-  const expenseAccounts = accounts.filter((a) => a.type === "expense");
-
-  async function getAccountTotal(accountId: number): Promise<number> {
+  // ── Primary source: journal_lines (the double-entry source of truth) ─────────
+  // For each account, sum debits and credits from journal entries in range.
+  async function getJournalBalance(accountId: number, normalBalance: string): Promise<number> {
     const result = await db
-      .select({ total: sql<number>`coalesce(sum(${transactionsTable.amount}), 0)` })
-      .from(transactionsTable)
-      .where(
-        and(
-          eq(transactionsTable.businessId, businessId),
-          eq(transactionsTable.accountId, accountId),
-          sql`${transactionsTable.date} >= ${startDate}`,
-          sql`${transactionsTable.date} <= ${endDate}`
-        )
-      );
-    return Number(result[0]?.total ?? 0);
+      .select({
+        totalDebits:  sql<number>`coalesce(sum(cast(${journalLinesTable.debitAmount}  as numeric)), 0)`,
+        totalCredits: sql<number>`coalesce(sum(cast(${journalLinesTable.creditAmount} as numeric)), 0)`,
+      })
+      .from(journalLinesTable)
+      .innerJoin(journalEntriesTable, eq(journalLinesTable.journalEntryId, journalEntriesTable.id))
+      .where(and(
+        eq(journalLinesTable.accountId, accountId),
+        eq(journalEntriesTable.businessId, businessId),
+        gte(journalEntriesTable.date, startDate),
+        lte(journalEntriesTable.date, endDate),
+      ));
+    const d = Number(result[0]?.totalDebits  ?? 0);
+    const c = Number(result[0]?.totalCredits ?? 0);
+    // Income (credit-normal): balance = credits − debits
+    // Expense/COGS (debit-normal): balance = debits − credits
+    return normalBalance === "credit" ? c - d : d - c;
   }
 
-  const incomeItems = await Promise.all(
-    incomeAccounts.map(async (a) => ({
-      accountId: a.id,
+  const incomeAccounts  = accounts.filter((a) => a.type === "income");
+  const cogsAccounts    = accounts.filter((a) => a.type === "cogs");
+  const expenseAccounts = accounts.filter((a) => a.type === "expense");
+
+  function toItems(list: typeof accounts) {
+    return Promise.all(list.map(async (a) => ({
+      accountId:   a.id,
       accountName: a.name,
       accountCode: a.code,
-      amount: await getAccountTotal(a.id),
-    }))
-  );
+      normalBalance: a.normalBalance,
+      amount: await getJournalBalance(a.id, a.normalBalance),
+    })));
+  }
 
-  const expenseItems = await Promise.all(
-    expenseAccounts.map(async (a) => ({
-      accountId: a.id,
-      accountName: a.name,
-      accountCode: a.code,
-      amount: await getAccountTotal(a.id),
-    }))
-  );
+  const [incomeItems, cogsItems, expenseItems] = await Promise.all([
+    toItems(incomeAccounts),
+    toItems(cogsAccounts),
+    toItems(expenseAccounts),
+  ]);
 
-  // Also pull in unassigned transactions (bank uploads with no account mapping)
-  // so the P&L is populated immediately after a statement import.
+  // ── Fallback: unassigned bank transactions (no journal entry yet) ────────────
+  // Show these when no journal entry exists so the P&L still shows data.
   const unassignedCreditResult = await db
     .select({ total: sql<number>`coalesce(sum(cast(${transactionsTable.amount} as numeric)), 0)` })
     .from(transactionsTable)
@@ -110,25 +108,42 @@ router.get("/businesses/:businessId/reports/profit-loss", async (req: AuthReques
       lte(transactionsTable.date, endDate),
     ));
 
-  const unassignedCreditTotal = Number(unassignedCreditResult[0]?.total ?? 0);
-  const unassignedDebitTotal  = Number(unassignedDebitResult[0]?.total ?? 0);
+  const unassignedCredit = Number(unassignedCreditResult[0]?.total ?? 0);
+  const unassignedDebit  = Number(unassignedDebitResult[0]?.total ?? 0);
 
-  if (unassignedCreditTotal > 0) {
-    incomeItems.push({ accountId: -1, accountName: "Bank Deposits (Unassigned)", accountCode: "", amount: unassignedCreditTotal });
+  if (unassignedCredit > 0) {
+    incomeItems.push({ accountId: -1, accountName: "Bank Deposits (Unassigned)", accountCode: null, normalBalance: "credit", amount: unassignedCredit });
   }
-  if (unassignedDebitTotal > 0) {
-    expenseItems.push({ accountId: -1, accountName: "Bank Withdrawals (Unassigned)", accountCode: "", amount: unassignedDebitTotal });
+  if (unassignedDebit > 0) {
+    expenseItems.push({ accountId: -1, accountName: "Bank Withdrawals (Unassigned)", accountCode: null, normalBalance: "debit", amount: unassignedDebit });
   }
 
-  const totalIncome = incomeItems.reduce((sum, i) => sum + i.amount, 0);
-  const totalExpenses = expenseItems.reduce((sum, i) => sum + i.amount, 0);
+  // Filter out zero-balance accounts unless they are the unassigned buckets
+  const nonZeroIncome   = incomeItems.filter((i)  => i.amount !== 0);
+  const nonZeroCogs     = cogsItems.filter((i)    => i.amount !== 0);
+  const nonZeroExpenses = expenseItems.filter((i) => i.amount !== 0);
+
+  const totalIncome    = nonZeroIncome.reduce((s, i) => s + i.amount, 0);
+  const totalCOGS      = nonZeroCogs.reduce((s, i)   => s + i.amount, 0);
+  const grossProfit    = totalIncome - totalCOGS;
+  const grossMargin    = totalIncome > 0 ? (grossProfit / totalIncome) * 100 : 0;
+  const totalExpenses  = nonZeroExpenses.reduce((s, i) => s + i.amount, 0);
+  const netProfit      = grossProfit - totalExpenses;
+  const netMargin      = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
 
   res.json({
     startDate,
     endDate,
-    income: { title: "Income", items: incomeItems, total: totalIncome },
-    expenses: { title: "Expenses", items: expenseItems, total: totalExpenses },
-    netProfit: totalIncome - totalExpenses,
+    income:    { title: "Income",               items: nonZeroIncome,   total: totalIncome },
+    cogs:      { title: "Cost of Goods Sold",   items: nonZeroCogs,     total: totalCOGS },
+    grossProfit,
+    grossMargin,
+    expenses:  { title: "Operating Expenses",   items: nonZeroExpenses, total: totalExpenses },
+    netProfit,
+    netMargin,
+    // legacy flattened fields for backwards-compat with frontend
+    totalIncome,
+    totalExpenses,
   });
 });
 

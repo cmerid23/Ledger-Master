@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
-import { db, transactionsTable, businessesTable } from "@workspace/db";
+import { db, transactionsTable, businessesTable, accountsTable, bankRulesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { ConfirmUploadParams, ConfirmUploadBody } from "@workspace/api-zod";
+import { accountingEngine } from "../engine/accounting";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 import { createRequire } from "node:module";
 import multer from "multer";
@@ -281,6 +282,121 @@ function parseBankStatementPdf(text: string): ParsedTx[] {
   return txns.filter(t => t.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(t.date));
 }
 
+// ── Keyword auto-categorization ───────────────────────────────────────────────
+
+// Maps keyword patterns to account codes from the standard chart of accounts
+const KEYWORD_RULES: Array<{ keywords: string[]; code: string; name: string; confidence: number }> = [
+  // Fuel / trucking
+  { keywords: ["shell", "exxon", "bp ", "chevron", "sunoco", "circle k", "loves ", "pilot", "ta travel", "petro ", "fuel", "gas station", "speedway", "marathon", "kwik trip", "flying j"], code: "6050", name: "Fuel and Oil", confidence: 0.92 },
+  // Communication
+  { keywords: ["at&t", "verizon", "t-mobile", "comcast", "xfinity", "spectrum", "sprint", "dish network", "directv", "centurylink", "lumen"], code: "6030", name: "Communication (Phone, Internet)", confidence: 0.93 },
+  // Insurance
+  { keywords: ["insurance", "insuranc", "progressive", "geico", "allstate", "statefarm", "nationwide", "usaa"], code: "6060", name: "Insurance", confidence: 0.90 },
+  // Office supplies
+  { keywords: ["amazon", "office depot", "staples", "best buy", "walmart", "target", "costco", "sam's club", "office max"], code: "6080", name: "Office Supplies", confidence: 0.70 },
+  // Repairs & maintenance
+  { keywords: ["jiffy lube", "firestone", "pep boys", "autozone", "advance auto", "o'reilly", "napa auto", "midas", "brakes plus", "tire", "mechanic", "repair", "maintenance"], code: "6110", name: "Repairs and Maintenance", confidence: 0.85 },
+  // Meals & entertainment
+  { keywords: ["mcdonald", "subway", "starbucks", "dunkin", "doordash", "uber eats", "grubhub", "restaurant", "cafe ", "diner", "pizza", "burger", "chick-fil", "wendy's", "taco bell", "chipotle", "panera"], code: "6070", name: "Meals and Entertainment", confidence: 0.82 },
+  // Travel / lodging
+  { keywords: ["marriott", "hilton", "hyatt", "holiday inn", "best western", "airbnb", "expedia", "hotels.com", "motel", "hotel"], code: "6140", name: "Travel", confidence: 0.88 },
+  // Rent / lease
+  { keywords: ["rent", "lease ", "leasing", "property mgmt", "landlord"], code: "6100", name: "Rent and Lease", confidence: 0.88 },
+  // Utilities
+  { keywords: ["electric", "water bill", "sewer", "gas bill", "utility", "utilities", "pge ", "duke energy", "southern co", "con ed", "consumers energy"], code: "6150", name: "Utilities", confidence: 0.90 },
+  // Payroll / wages
+  { keywords: ["payroll", "adp ", "paychex", "gusto", "direct deposit", "salary", "wages"], code: "6120", name: "Salaries and Wages", confidence: 0.88 },
+  // Professional services
+  { keywords: ["quickbooks", "intuit", "fresbooks", "xero", "attorney", "lawyer", "cpa ", "accounting", "bookkeep", "tax prep", "consulting"], code: "6090", name: "Professional Services", confidence: 0.80 },
+  // Taxes / licenses
+  { keywords: ["irs ", "state tax", "dmv ", "dot ", "license fee", "permit fee", "registration fee", "tax payment"], code: "6130", name: "Taxes and Licenses", confidence: 0.85 },
+  // Advertising
+  { keywords: ["google ads", "facebook ads", "meta ads", "instagram", "linkedin ads", "indeed", "marketing", "advertising"], code: "6010", name: "Advertising and Marketing", confidence: 0.85 },
+  // Bank fees
+  { keywords: ["service charge", "monthly fee", "bank fee", "overdraft", "wire fee", "transfer fee", "atm fee", "nsf fee", "maintenance fee"], code: "6020", name: "Bank Fees and Charges", confidence: 0.95 },
+  // Vehicle expenses (general)
+  { keywords: ["tolls", "toll road", "ez pass", "ipass", "pike ", "turnpike", "parking", "dmv", "dot inspection", "truck wash", "wash bay"], code: "6160", name: "Vehicle Expenses", confidence: 0.87 },
+  // Income (deposits / payments to the business)
+  { keywords: ["payment", "deposit", "transfer in", "zelle ", "venmo", "paypal", "stripe", "square", "invoice", "receivable"], code: "4010", name: "Service Revenue", confidence: 0.60 },
+];
+
+type AutoCatResult = {
+  suggestedAccountId: number | null;
+  suggestedAccountName: string | null;
+  suggestedBy: string | null;
+  suggestedConfidence: number | null;
+};
+
+async function autoCategorize(
+  description: string,
+  amount: number,
+  businessId: number,
+  accountsByCode: Map<string, { id: number; name: string }>
+): Promise<AutoCatResult> {
+  const desc = description.toLowerCase();
+
+  // 1. Check bank rules first (user-defined, higher priority)
+  const rules = await db
+    .select()
+    .from(bankRulesTable)
+    .where(and(eq(bankRulesTable.businessId, businessId), eq(bankRulesTable.isActive, true)))
+    .orderBy(bankRulesTable.priority);
+
+  for (const rule of rules) {
+    if (!rule.autoApply) continue;
+    let match = false;
+    const field = desc;
+    switch (rule.conditionOperator) {
+      case "contains":    match = field.includes(rule.conditionValue.toLowerCase()); break;
+      case "starts_with": match = field.startsWith(rule.conditionValue.toLowerCase()); break;
+      case "ends_with":   match = field.endsWith(rule.conditionValue.toLowerCase()); break;
+      case "equals":      match = field === rule.conditionValue.toLowerCase(); break;
+      case "greater_than": match = Math.abs(amount) > parseFloat(rule.conditionValue); break;
+      case "less_than":    match = Math.abs(amount) < parseFloat(rule.conditionValue); break;
+    }
+    if (match && rule.accountId) {
+      const acct = await db.select({ name: accountsTable.name }).from(accountsTable).where(eq(accountsTable.id, rule.accountId)).limit(1);
+      return {
+        suggestedAccountId: rule.accountId,
+        suggestedAccountName: acct[0]?.name ?? null,
+        suggestedBy: `rule:${rule.name}`,
+        suggestedConfidence: 0.99,
+      };
+    }
+  }
+
+  // 2. Keyword matching against standard CoA
+  // For deposits (positive = credit), prefer income accounts
+  // For payments (negative = debit), prefer expense accounts
+  for (const rule of KEYWORD_RULES) {
+    const matched = rule.keywords.some((kw) => desc.includes(kw));
+    if (!matched) continue;
+
+    // Don't suggest income for expenses and vice versa
+    const isIncome = rule.code.startsWith("4");
+    if (amount > 0 && !isIncome) continue; // deposit → skip expense suggestions
+    if (amount < 0 && isIncome) continue;  // payment → skip income suggestions
+
+    const acct = accountsByCode.get(rule.code);
+    if (acct) {
+      return {
+        suggestedAccountId: acct.id,
+        suggestedAccountName: acct.name,
+        suggestedBy: `keyword:${rule.name}`,
+        suggestedConfidence: rule.confidence,
+      };
+    }
+  }
+
+  // 3. Fallback by transaction direction
+  if (amount > 0) {
+    const acct = accountsByCode.get("4010") ?? accountsByCode.get("4000");
+    if (acct) return { suggestedAccountId: acct.id, suggestedAccountName: acct.name, suggestedBy: "direction:credit", suggestedConfidence: 0.40 };
+  }
+
+  return { suggestedAccountId: null, suggestedAccountName: null, suggestedBy: null, suggestedConfidence: null };
+}
+
 // ── Unified Statement Upload ───────────────────────────────────────────────────
 
 router.post("/businesses/:businessId/upload/statement", upload.single("file"), async (req: AuthRequest, res): Promise<void> => {
@@ -322,17 +438,30 @@ router.post("/businesses/:businessId/upload/statement", upload.single("file"), a
       transactions = parseCsvTsv(text, "\t");
 
     } else {
-      // Default to CSV (also handles .txt that has comma-separated values)
       format = "csv";
       const text = req.file.buffer.toString("utf-8");
       const sep = text.indexOf("\t") > text.indexOf(",") ? "\t" : ",";
       transactions = parseCsvTsv(text, sep);
     }
 
-    res.json({ transactions, count: transactions.length, format });
-  } catch (err: any) {
-    console.error("Statement parse error:", err);
-    res.status(500).json({ error: "Failed to parse file: " + (err?.message || "unknown error") });
+    // Build a code → { id, name } map for this business's accounts
+    const accts = await db.select({ id: accountsTable.id, code: accountsTable.code, name: accountsTable.name })
+      .from(accountsTable)
+      .where(and(eq(accountsTable.businessId, businessId), eq(accountsTable.isActive, true)));
+    const accountsByCode = new Map(accts.filter((a) => a.code).map((a) => [a.code!, { id: a.id, name: a.name }]));
+
+    // Auto-categorize each transaction
+    const categorized = await Promise.all(
+      transactions.map(async (tx) => {
+        const cat = await autoCategorize(tx.description, tx.amount, businessId, accountsByCode);
+        return { ...tx, ...cat };
+      })
+    );
+
+    res.json({ transactions: categorized, count: categorized.length, format });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "unknown error";
+    res.status(500).json({ error: "Failed to parse file: " + msg });
   }
 });
 
@@ -360,20 +489,51 @@ router.post("/businesses/:businessId/upload/confirm", async (req: AuthRequest, r
   const parsed = ConfirmUploadBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
+  const businessId = params.data.businessId;
+  const globalAccountId = parsed.data.accountId ?? null;
+
   let imported = 0;
+  let journalEntriesPosted = 0;
+  const errors: string[] = [];
+
   for (const tx of parsed.data.transactions) {
-    await db.insert(transactionsTable).values({
-      businessId: params.data.businessId,
+    // Determine which account to use: per-transaction → global → null
+    const resolvedAccountId = tx.accountId ?? globalAccountId ?? null;
+
+    const [inserted] = await db.insert(transactionsTable).values({
+      businessId,
       date: tx.date,
       description: tx.description,
-      amount: String(tx.amount),
+      amount: String(Math.abs(tx.amount)),
       type: tx.type,
-      accountId: parsed.data.accountId ?? null,
+      accountId: resolvedAccountId,
       source: "upload",
-    });
+    }).returning();
+
     imported++;
+
+    // Post a double-entry journal entry if we have an account to categorize to
+    if (resolvedAccountId && inserted) {
+      try {
+        // amount sign: credit transactions = positive (money in), debit = negative (money out)
+        const signedAmount = tx.type === "credit" ? Math.abs(tx.amount) : -Math.abs(tx.amount);
+        await accountingEngine.postBankTransaction({
+          businessId,
+          transactionId: inserted.id,
+          date: tx.date,
+          description: tx.description,
+          amount: signedAmount,
+          categoryAccountId: resolvedAccountId,
+        });
+        journalEntriesPosted++;
+      } catch (e) {
+        // Non-fatal: record the error but continue importing
+        errors.push(`TX ${tx.date} ${tx.description}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
-  res.status(201).json({ imported });
+
+  res.status(201).json({ imported, journalEntriesPosted, errors: errors.length > 0 ? errors : undefined });
 });
 
 export default router;
