@@ -1,0 +1,1443 @@
+You are rebuilding ClearLedger from the ground up as a production-grade 
+accounting SaaS modeled after QuickBooks Online and Xero. The previous build 
+failed because the core accounting engine was weak — transactions did not flow 
+properly into the chart of accounts, bank statement parsing did not categorize 
+transactions, and reports showed only flat totals instead of proper breakdowns.
+
+DELETE the existing codebase and start completely fresh. Build a new monorepo 
+with the following stack:
+
+Frontend: React 18 + TypeScript + Vite + Tailwind CSS
+Backend: Node.js + Express + TypeScript  
+Database: PostgreSQL via Supabase
+ORM: Drizzle ORM (type-safe, no raw SQL mistakes)
+Email: Resend
+Payments: Stripe
+File storage: Supabase Storage
+Deployment: Railway
+
+══════════════════════════════════════════════════
+STEP 1 — PROJECT STRUCTURE (build this first)
+══════════════════════════════════════════════════
+
+/clearedger
+  /packages
+    /db          → Drizzle schema, migrations, seed data
+    /api         → Express backend
+    /web         → React frontend
+  package.json   → pnpm workspace root
+  pnpm-workspace.yaml
+
+/packages/db/schema.ts must define ALL tables with proper
+foreign keys, indexes, and constraints before anything else
+is built. This is the foundation everything else depends on.
+
+══════════════════════════════════════════════════
+STEP 2 — DATABASE SCHEMA (the most critical step)
+══════════════════════════════════════════════════
+
+Build this exact schema in /packages/db/schema.ts using Drizzle ORM.
+Every table must have proper relationships. This schema is what makes
+the accounting engine work correctly.
+
+-- USERS AND BUSINESSES --
+
+users:
+  id uuid pk
+  email text unique not null
+  password_hash text not null
+  full_name text
+  avatar_url text
+  created_at timestamp default now()
+
+businesses:
+  id uuid pk
+  owner_id uuid → users.id
+  name text not null
+  legal_name text
+  tax_id text
+  address text
+  city text
+  state text
+  zip text
+  country text default 'US'
+  phone text
+  email text
+  website text
+  logo_url text
+  currency text default 'USD'
+  fiscal_year_start integer default 1  -- month number 1-12
+  timezone text default 'America/Chicago'
+  industry text
+  invoice_prefix text default 'INV-'
+  invoice_next_number integer default 1001
+  quote_prefix text default 'QTE-'
+  quote_next_number integer default 1001
+  invoice_footer text
+  invoice_accent_color text default '#10B981'
+  default_payment_terms integer default 30
+  default_tax_rate numeric(5,2) default 0
+  plan text default 'free'
+  created_at timestamp default now()
+
+business_users:
+  id uuid pk
+  business_id uuid → businesses.id
+  user_id uuid → users.id
+  role text default 'admin'  -- admin, bookkeeper, viewer
+  created_at timestamp default now()
+
+-- CHART OF ACCOUNTS (THE HEART OF THE SYSTEM) --
+
+accounts:
+  id uuid pk
+  business_id uuid → businesses.id
+  code text           -- e.g. 1000, 1100, 2000
+  name text not null  -- e.g. "Cash", "Accounts Receivable"
+  type text not null  
+  -- MUST be one of: asset, liability, equity, income, expense, cogs
+  subtype text        
+  -- asset subtypes: current_asset, fixed_asset, bank, accounts_receivable
+  -- liability subtypes: current_liability, long_term_liability, accounts_payable, credit_card
+  -- income subtypes: operating_income, other_income
+  -- expense subtypes: operating_expense, other_expense
+  -- cogs subtypes: cost_of_goods_sold
+  parent_id uuid → accounts.id  -- for sub-accounts
+  description text
+  is_active boolean default true
+  is_system boolean default false  -- system accounts cannot be deleted
+  normal_balance text not null     -- debit or credit
+  -- Assets and Expenses: normal_balance = debit
+  -- Liabilities, Equity, Income: normal_balance = credit
+  created_at timestamp default now()
+
+-- SEED STANDARD CHART OF ACCOUNTS FOR EVERY NEW BUSINESS:
+-- 
+-- ASSETS (type: asset, normal_balance: debit)
+-- 1000 Cash and Cash Equivalents (subtype: bank)
+-- 1010 Checking Account (subtype: bank, parent: 1000)
+-- 1020 Savings Account (subtype: bank, parent: 1000)
+-- 1100 Accounts Receivable (subtype: accounts_receivable)
+-- 1200 Inventory (subtype: current_asset)
+-- 1300 Prepaid Expenses (subtype: current_asset)
+-- 1500 Equipment (subtype: fixed_asset)
+-- 1510 Less: Accumulated Depreciation (subtype: fixed_asset)
+-- 1600 Vehicles (subtype: fixed_asset)
+-- 1610 Less: Accumulated Depreciation - Vehicles (subtype: fixed_asset)
+--
+-- LIABILITIES (type: liability, normal_balance: credit)
+-- 2000 Accounts Payable (subtype: accounts_payable)
+-- 2100 Credit Card Payable (subtype: credit_card)
+-- 2200 Sales Tax Payable (subtype: current_liability)
+-- 2300 Accrued Liabilities (subtype: current_liability)
+-- 2500 Loans Payable (subtype: long_term_liability)
+--
+-- EQUITY (type: equity, normal_balance: credit)
+-- 3000 Owner's Equity
+-- 3100 Owner's Draw
+-- 3200 Retained Earnings
+--
+-- INCOME (type: income, normal_balance: credit)
+-- 4000 Revenue (subtype: operating_income)
+-- 4010 Service Revenue (subtype: operating_income, parent: 4000)
+-- 4020 Product Sales (subtype: operating_income, parent: 4000)
+-- 4030 Consulting Revenue (subtype: operating_income, parent: 4000)
+-- 4500 Other Income (subtype: other_income)
+-- 4510 Interest Income (subtype: other_income, parent: 4500)
+--
+-- COGS (type: cogs, normal_balance: debit)
+-- 5000 Cost of Goods Sold
+-- 5010 Materials and Supplies (parent: 5000)
+-- 5020 Direct Labor (parent: 5000)
+-- 5030 Subcontractors (parent: 5000)
+--
+-- EXPENSES (type: expense, normal_balance: debit)
+-- 6000 Operating Expenses
+-- 6010 Advertising and Marketing (parent: 6000)
+-- 6020 Bank Fees and Charges (parent: 6000)
+-- 6030 Communication (Phone, Internet) (parent: 6000)
+-- 6040 Depreciation (parent: 6000)
+-- 6050 Fuel and Oil (parent: 6000)
+-- 6060 Insurance (parent: 6000)
+-- 6070 Meals and Entertainment (parent: 6000)
+-- 6080 Office Supplies (parent: 6000)
+-- 6090 Professional Services (parent: 6000)
+-- 6100 Rent and Lease (parent: 6000)
+-- 6110 Repairs and Maintenance (parent: 6000)
+-- 6120 Salaries and Wages (parent: 6000)
+-- 6130 Taxes and Licenses (parent: 6000)
+-- 6140 Travel (parent: 6000)
+-- 6150 Utilities (parent: 6000)
+-- 6160 Vehicle Expenses (parent: 6000)
+-- 6900 Other Expenses
+
+-- JOURNAL ENTRIES (double-entry core) --
+
+journal_entries:
+  id uuid pk
+  business_id uuid → businesses.id
+  entry_number text  -- e.g. JE-001
+  date date not null
+  description text not null
+  reference text     -- invoice number, bill number, etc.
+  source text        -- manual, invoice, bill, bank_import, payroll
+  source_id uuid     -- id of the source record
+  is_posted boolean default true
+  created_by uuid → users.id
+  created_at timestamp default now()
+
+journal_lines:
+  id uuid pk
+  journal_entry_id uuid → journal_entries.id
+  account_id uuid → accounts.id
+  description text
+  debit numeric(15,4) default 0
+  credit numeric(15,4) default 0
+  -- RULE: debit and credit cannot both be non-zero on same line
+  -- RULE: sum of all debits in entry must equal sum of all credits
+
+-- BANK ACCOUNTS --
+
+bank_accounts:
+  id uuid pk
+  business_id uuid → businesses.id
+  account_id uuid → accounts.id  -- links to chart of accounts
+  name text not null
+  institution_name text
+  account_number_last4 text
+  account_type text  -- checking, savings, credit_card, loan
+  currency text default 'USD'
+  current_balance numeric(15,2) default 0
+  opening_balance numeric(15,2) default 0
+  opening_balance_date date
+  plaid_account_id text
+  plaid_item_id text
+  plaid_access_token text
+  last_synced_at timestamp
+  is_active boolean default true
+  created_at timestamp default now()
+
+-- BANK TRANSACTIONS (raw imported data) --
+
+bank_transactions:
+  id uuid pk
+  business_id uuid → businesses.id
+  bank_account_id uuid → bank_accounts.id
+  date date not null
+  description text not null
+  raw_description text  -- original unmodified description
+  amount numeric(15,2) not null  
+  -- POSITIVE = money in (deposit/credit)
+  -- NEGATIVE = money out (withdrawal/debit)
+  transaction_type text  -- debit, credit
+  reference text
+  source text  -- csv_import, pdf_import, plaid, manual
+  import_batch_id uuid
+  status text default 'unreviewed'
+  -- unreviewed, categorized, reconciled, excluded
+  suggested_account_id uuid → accounts.id   -- AI suggestion
+  suggested_confidence numeric(3,2)          -- 0.00 to 1.00
+  account_id uuid → accounts.id             -- user confirmed category
+  journal_entry_id uuid → journal_entries.id -- created after categorization
+  reconciled_at timestamp
+  plaid_transaction_id text unique
+  created_at timestamp default now()
+
+-- BANK IMPORT BATCHES --
+
+import_batches:
+  id uuid pk
+  business_id uuid → businesses.id
+  bank_account_id uuid → bank_accounts.id
+  filename text
+  file_type text  -- csv, pdf, ofx, qbo
+  total_rows integer
+  imported_rows integer
+  duplicate_rows integer
+  error_rows integer
+  date_range_start date
+  date_range_end date
+  total_credits numeric(15,2)
+  total_debits numeric(15,2)
+  created_at timestamp default now()
+
+-- BANK RULES (auto-categorization) --
+
+bank_rules:
+  id uuid pk
+  business_id uuid → businesses.id
+  name text not null
+  priority integer default 0
+  -- conditions
+  condition_field text default 'description'
+  condition_operator text  -- contains, starts_with, ends_with, equals, greater_than, less_than
+  condition_value text not null
+  amount_min numeric(15,2)
+  amount_max numeric(15,2)
+  transaction_type text   -- debit, credit, both
+  -- actions
+  account_id uuid → accounts.id  -- categorize to this account
+  payee_name text                 -- set payee to this
+  memo text                       -- add this memo
+  is_active boolean default true
+  auto_apply boolean default true
+  times_applied integer default 0
+  created_at timestamp default now()
+
+-- CUSTOMERS AND VENDORS --
+
+contacts:
+  id uuid pk
+  business_id uuid → businesses.id
+  type text not null  -- customer, vendor, both
+  name text not null
+  company_name text
+  email text
+  phone text
+  address text
+  city text
+  state text
+  zip text
+  country text default 'US'
+  tax_id text
+  currency text default 'USD'
+  payment_terms integer default 30
+  credit_limit numeric(15,2)
+  default_account_id uuid → accounts.id
+  hourly_rate numeric(10,2)
+  notes text
+  is_active boolean default true
+  portal_access boolean default false
+  portal_token text unique
+  created_at timestamp default now()
+
+-- INVOICES --
+
+invoices:
+  id uuid pk
+  business_id uuid → businesses.id
+  contact_id uuid → contacts.id
+  job_id uuid → jobs.id
+  invoice_number text not null
+  status text default 'draft'
+  -- draft, sent, viewed, partial, paid, overdue, written_off, void
+  issue_date date not null default current_date
+  due_date date
+  currency text default 'USD'
+  exchange_rate numeric(10,6) default 1
+  subtotal numeric(15,2) default 0
+  discount_type text  -- percent, amount
+  discount_value numeric(10,2) default 0
+  discount_amount numeric(15,2) default 0
+  tax_rate numeric(5,2) default 0
+  tax_amount numeric(15,2) default 0
+  total numeric(15,2) default 0
+  amount_paid numeric(15,2) default 0
+  balance_due numeric(15,2) default 0
+  notes text
+  terms text
+  footer text
+  is_recurring boolean default false
+  recurring_interval text  -- weekly, monthly, quarterly, annually
+  recurring_next_date date
+  stripe_payment_intent_id text
+  stripe_payment_url text
+  viewed_at timestamp
+  view_count integer default 0
+  sent_at timestamp
+  paid_at timestamp
+  void_at timestamp
+  void_reason text
+  journal_entry_id uuid → journal_entries.id
+  created_at timestamp default now()
+
+invoice_line_items:
+  id uuid pk
+  invoice_id uuid → invoices.id
+  description text not null
+  detail text
+  account_id uuid → accounts.id  -- which income account
+  quantity numeric(10,3) default 1
+  unit text  -- hours, days, units, miles, loads
+  unit_price numeric(15,4) not null
+  discount_percent numeric(5,2) default 0
+  tax_rate numeric(5,2) default 0
+  amount numeric(15,2) not null
+  sort_order integer default 0
+
+invoice_payments:
+  id uuid pk
+  invoice_id uuid → invoices.id
+  business_id uuid → businesses.id
+  contact_id uuid → contacts.id
+  amount numeric(15,2) not null
+  payment_date date not null
+  payment_method text  -- cash, check, bank_transfer, stripe, other
+  reference text
+  deposit_account_id uuid → accounts.id  -- which bank account received it
+  notes text
+  stripe_charge_id text
+  bank_transaction_id uuid → bank_transactions.id
+  journal_entry_id uuid → journal_entries.id
+  created_at timestamp default now()
+
+-- BILLS (accounts payable) --
+
+bills:
+  id uuid pk
+  business_id uuid → businesses.id
+  contact_id uuid → contacts.id
+  job_id uuid → jobs.id
+  bill_number text
+  reference text
+  status text default 'draft'
+  -- draft, awaiting_payment, partial, paid, overdue, void
+  bill_date date not null
+  due_date date
+  currency text default 'USD'
+  subtotal numeric(15,2) default 0
+  tax_amount numeric(15,2) default 0
+  total numeric(15,2) default 0
+  amount_paid numeric(15,2) default 0
+  balance_due numeric(15,2) default 0
+  notes text
+  attachment_url text
+  journal_entry_id uuid → journal_entries.id
+  created_at timestamp default now()
+
+bill_line_items:
+  id uuid pk
+  bill_id uuid → bills.id
+  description text not null
+  account_id uuid → accounts.id  -- which expense account
+  quantity numeric(10,3) default 1
+  unit_price numeric(15,4) not null
+  amount numeric(15,2) not null
+  job_id uuid → jobs.id
+  sort_order integer default 0
+
+bill_payments:
+  id uuid pk
+  bill_id uuid → bills.id
+  business_id uuid → businesses.id
+  amount numeric(15,2) not null
+  payment_date date not null
+  payment_method text
+  reference text
+  payment_account_id uuid → accounts.id
+  bank_transaction_id uuid → bank_transactions.id
+  journal_entry_id uuid → journal_entries.id
+  created_at timestamp default now()
+
+-- JOBS / PROJECTS --
+
+jobs:
+  id uuid pk
+  business_id uuid → businesses.id
+  contact_id uuid → contacts.id
+  job_number text
+  name text not null
+  status text default 'active'
+  type text  -- fixed_price, hourly, recurring
+  start_date date
+  end_date date
+  estimated_hours numeric(8,2)
+  estimated_revenue numeric(15,2)
+  estimated_cost numeric(15,2)
+  actual_revenue numeric(15,2) default 0
+  actual_cost numeric(15,2) default 0
+  notes text
+  created_at timestamp default now()
+
+-- TIME ENTRIES --
+
+time_entries:
+  id uuid pk
+  business_id uuid → businesses.id
+  contact_id uuid → contacts.id
+  job_id uuid → jobs.id
+  invoice_id uuid → invoices.id
+  user_id uuid → users.id
+  description text not null
+  date date not null
+  start_time timestamp
+  end_time timestamp
+  duration_minutes integer not null
+  hourly_rate numeric(10,2) default 0
+  amount numeric(15,2)
+  is_billable boolean default true
+  is_invoiced boolean default false
+  account_id uuid → accounts.id
+  created_at timestamp default now()
+
+-- RECEIPTS --
+
+receipts:
+  id uuid pk
+  business_id uuid → businesses.id
+  bank_transaction_id uuid → bank_transactions.id
+  bill_id uuid → bills.id
+  file_name text not null
+  file_url text not null
+  file_type text
+  file_size_bytes integer
+  vendor_name text
+  amount numeric(15,2)
+  receipt_date date
+  account_id uuid → accounts.id
+  tax_deductible boolean default true
+  notes text
+  ai_extracted boolean default false
+  created_at timestamp default now()
+
+-- RECONCILIATIONS --
+
+reconciliations:
+  id uuid pk
+  business_id uuid → businesses.id
+  bank_account_id uuid → bank_accounts.id
+  statement_date date not null
+  period_start date not null
+  period_end date not null
+  opening_balance numeric(15,2) not null
+  closing_balance numeric(15,2) not null
+  cleared_balance numeric(15,2) default 0
+  difference numeric(15,2) default 0
+  status text default 'in_progress'  -- in_progress, completed
+  completed_at timestamp
+  created_at timestamp default now()
+
+══════════════════════════════════════════════════
+STEP 3 — THE ACCOUNTING ENGINE
+══════════════════════════════════════════════════
+
+This is the most critical code in the entire application.
+Build it in /packages/api/src/engine/accounting.ts
+
+Every financial event must create journal entries automatically.
+The journal entries are what populate the P&L, Balance Sheet,
+and all other reports. Nothing should be hardcoded totals.
+
+class AccountingEngine {
+
+  // When an invoice is created and posted:
+  async postInvoice(invoiceId: string) {
+    // Debit: Accounts Receivable (1100) for invoice total
+    // Credit: Each income account for each line item amount
+    // Credit: Sales Tax Payable (2200) for tax amount
+    // 
+    // Example for $495.25 invoice with 8.25% tax:
+    // DR Accounts Receivable    495.25
+    //   CR Service Revenue          457.50
+    //   CR Sales Tax Payable         37.75
+  }
+
+  // When a payment is received on an invoice:
+  async postInvoicePayment(paymentId: string) {
+    // Debit: Bank Account (deposit account selected)
+    // Credit: Accounts Receivable
+    //
+    // DR Checking Account       495.25
+    //   CR Accounts Receivable      495.25
+  }
+
+  // When a bill is created:
+  async postBill(billId: string) {
+    // Debit: Each expense account for each line item
+    // Credit: Accounts Payable
+    //
+    // DR Office Supplies         124.30
+    //   CR Accounts Payable          124.30
+  }
+
+  // When a bill is paid:
+  async postBillPayment(paymentId: string) {
+    // Debit: Accounts Payable
+    // Credit: Bank Account
+    //
+    // DR Accounts Payable        124.30
+    //   CR Checking Account          124.30
+  }
+
+  // When a bank transaction is categorized:
+  async postBankTransaction(transactionId: string, accountId: string) {
+    const txn = await getTransaction(transactionId)
+    
+    if (txn.amount > 0) {
+      // Money coming IN (deposit/credit on bank statement)
+      // Debit: Bank account
+      // Credit: Selected income account
+      // DR Checking Account
+      //   CR [Selected Account]
+    } else {
+      // Money going OUT (withdrawal/debit on bank statement)
+      // Debit: Selected expense account
+      // Credit: Bank account
+      // DR [Selected Account]
+      //   CR Checking Account
+    }
+    
+    // Update transaction status to 'categorized'
+    // Store journal_entry_id on the transaction
+  }
+
+  // Validate journal entry balances before posting:
+  validateEntry(lines: JournalLine[]) {
+    const totalDebits = lines.reduce((sum, l) => sum + l.debit, 0)
+    const totalCredits = lines.reduce((sum, l) => sum + l.credit, 0)
+    if (Math.abs(totalDebits - totalCredits) > 0.01) {
+      throw new Error(`Journal entry out of balance: debits ${totalDebits} credits ${totalCredits}`)
+    }
+  }
+
+  // Calculate account balance at any date:
+  async getAccountBalance(accountId: string, asOfDate: string) {
+    const account = await getAccount(accountId)
+    
+    // Sum all journal_lines for this account up to asOfDate
+    const debits = await sumDebits(accountId, asOfDate)
+    const credits = await sumCredits(accountId, asOfDate)
+    
+    if (account.normal_balance === 'debit') {
+      return debits - credits  // Assets and Expenses
+    } else {
+      return credits - debits  // Liabilities, Equity, Income
+    }
+  }
+}
+
+══════════════════════════════════════════════════
+STEP 4 — BANK STATEMENT PARSER
+══════════════════════════════════════════════════
+
+Build in /packages/api/src/engine/parser.ts
+
+This is what was broken before. Build it properly.
+
+class BankStatementParser {
+
+  // Parse CSV bank statements - handle ALL common formats
+  parseCSV(fileContent: string, bankAccountId: string): ParsedTransaction[] {
+    
+    // Step 1: Detect column format automatically
+    // Try to detect which columns are: date, description, amount
+    // Banks use different column names:
+    // - "Date", "Transaction Date", "Posted Date", "Effective Date"
+    // - "Description", "Merchant", "Payee", "Transaction Description"
+    // - "Amount", "Transaction Amount", "Debit", "Credit"
+    // - Some banks have separate Debit and Credit columns
+    
+    const detectColumns = (headers: string[]) => {
+      const h = headers.map(h => h.toLowerCase().trim())
+      return {
+        dateCol: h.findIndex(h => 
+          ['date','transaction date','posted date','post date'].includes(h)),
+        descCol: h.findIndex(h => 
+          ['description','merchant','payee','transaction description',
+           'memo','details'].includes(h)),
+        amountCol: h.findIndex(h => 
+          ['amount','transaction amount'].includes(h)),
+        debitCol: h.findIndex(h => 
+          ['debit','withdrawal','debit amount'].includes(h)),
+        creditCol: h.findIndex(h => 
+          ['credit','deposit','credit amount'].includes(h)),
+      }
+    }
+    
+    // Step 2: Parse each row into a normalized transaction
+    // Normalize amount: 
+    //   - If separate debit/credit columns: credit is positive, debit is negative
+    //   - If single amount column: check if bank uses negatives for debits
+    //   - Some banks put parentheses (250.00) for negative
+    //   - Remove $, commas, spaces from amounts before parsing
+    
+    const parseAmount = (raw: string, type: 'debit'|'credit'|'amount') => {
+      let cleaned = raw.replace(/[$,\s]/g, '').replace(/[()]/g, '')
+      const num = parseFloat(cleaned)
+      if (type === 'debit') return -Math.abs(num)
+      if (type === 'credit') return Math.abs(num)
+      return num  // keep original sign for single amount column
+    }
+    
+    // Step 3: Parse dates - handle multiple formats
+    const parseDate = (raw: string) => {
+      // Try: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, MM-DD-YYYY, MMM DD YYYY
+      // Return as YYYY-MM-DD
+    }
+    
+    // Step 4: Return normalized transactions
+    return rows.map(row => ({
+      date: parseDate(row[dateCol]),
+      description: row[descCol].trim(),
+      raw_description: row[descCol].trim(),
+      amount: parseAmount(...)
+    }))
+  }
+
+  // Parse PDF bank statements
+  async parsePDF(fileBuffer: Buffer, bankAccountId: string): ParsedTransaction[] {
+    // Use pdf-parse library to extract text
+    // Then apply pattern matching to find transactions
+    // Most bank PDFs have table structure:
+    //   DATE | DESCRIPTION | AMOUNT or DATE | DESCRIPTION | DEBIT | CREDIT
+    
+    // Key patterns to detect:
+    // Dates: \d{1,2}[/-]\d{1,2}[/-]\d{2,4}
+    // Amounts: [$]?\d{1,3}(,\d{3})*\.\d{2}
+    // Lines with both a date and amount are likely transactions
+  }
+
+  // Apply bank rules to auto-categorize transactions
+  async applyCategoryRules(
+    transactions: ParsedTransaction[], 
+    businessId: string
+  ): CategorizedTransaction[] {
+    
+    const rules = await getBankRules(businessId)
+    
+    return transactions.map(txn => {
+      // Find first matching rule (rules ordered by priority)
+      const matchingRule = rules.find(rule => {
+        if (!rule.is_active) return false
+        
+        const field = txn[rule.condition_field] || txn.description
+        
+        switch (rule.condition_operator) {
+          case 'contains': 
+            return field.toLowerCase().includes(rule.condition_value.toLowerCase())
+          case 'starts_with': 
+            return field.toLowerCase().startsWith(rule.condition_value.toLowerCase())
+          case 'equals': 
+            return field.toLowerCase() === rule.condition_value.toLowerCase()
+          case 'greater_than': 
+            return Math.abs(txn.amount) > parseFloat(rule.condition_value)
+          case 'less_than': 
+            return Math.abs(txn.amount) < parseFloat(rule.condition_value)
+        }
+      })
+      
+      if (matchingRule) {
+        return { ...txn, account_id: matchingRule.account_id, rule_applied: matchingRule.name }
+      }
+      
+      return txn
+    })
+  }
+
+  // Use Claude AI to suggest categories for uncategorized transactions
+  async aiCategorize(
+    transactions: ParsedTransaction[],
+    chartOfAccounts: Account[]
+  ): SuggestedTransaction[] {
+    
+    const uncategorized = transactions.filter(t => !t.account_id)
+    if (uncategorized.length === 0) return transactions
+    
+    const prompt = `
+      You are an accounting assistant. Categorize these bank transactions 
+      into the correct account from the chart of accounts provided.
+      
+      Chart of Accounts:
+      ${chartOfAccounts.map(a => `${a.code} - ${a.name} (${a.type})`).join('\n')}
+      
+      Transactions to categorize:
+      ${uncategorized.map((t, i) => `${i}: ${t.date} | ${t.description} | ${t.amount}`).join('\n')}
+      
+      Return ONLY a JSON array with no markdown:
+      [{"index": 0, "account_code": "6050", "confidence": 0.95}, ...]
+      
+      Rules:
+      - Positive amounts are income/deposits → income accounts (4xxx)
+      - Negative amounts are expenses/withdrawals → expense accounts (6xxx)
+      - SHELL, EXXON, BP → Fuel and Oil (6050)
+      - AMAZON, OFFICE DEPOT, STAPLES → Office Supplies (6080)
+      - AT&T, VERIZON, COMCAST → Communication (6030)
+      - INSURANCE → Insurance (6060)
+      - RENT, LEASE → Rent and Lease (6100)
+    `
+    
+    const response = await callClaude(prompt)
+    const suggestions = JSON.parse(response)
+    
+    // Apply suggestions back to transactions
+    return transactions.map((t, i) => {
+      const suggestion = suggestions.find(s => s.index === i)
+      if (suggestion) {
+        const account = chartOfAccounts.find(a => a.code === suggestion.account_code)
+        return { ...t, suggested_account_id: account?.id, suggested_confidence: suggestion.confidence }
+      }
+      return t
+    })
+  }
+}
+
+══════════════════════════════════════════════════
+STEP 5 — REPORTS ENGINE
+══════════════════════════════════════════════════
+
+Build in /packages/api/src/engine/reports.ts
+
+Reports MUST be calculated from journal_lines — never from
+invoice totals or transaction totals directly. This is how
+QuickBooks and Xero do it. The journal is the source of truth.
+
+class ReportsEngine {
+
+  async getProfitAndLoss(businessId: string, from: string, to: string) {
+    
+    // Get all journal_lines within date range
+    // Group by account type using the accounts table
+    // Calculate net balance for each account
+    
+    const incomeAccounts = await getAccountBalances(businessId, 'income', from, to)
+    const cogsAccounts = await getAccountBalances(businessId, 'cogs', from, to)
+    const expenseAccounts = await getAccountBalances(businessId, 'expense', from, to)
+    
+    const totalIncome = sum(incomeAccounts)
+    const totalCOGS = sum(cogsAccounts)
+    const grossProfit = totalIncome - totalCOGS
+    const totalExpenses = sum(expenseAccounts)
+    const netProfit = grossProfit - totalExpenses
+    
+    return {
+      sections: [
+        {
+          title: 'Income',
+          accounts: incomeAccounts,
+          total: totalIncome
+        },
+        {
+          title: 'Cost of Goods Sold',
+          accounts: cogsAccounts,
+          total: totalCOGS
+        },
+        {
+          title: 'Gross Profit',
+          total: grossProfit
+        },
+        {
+          title: 'Operating Expenses',
+          accounts: expenseAccounts,
+          total: totalExpenses
+        },
+        {
+          title: 'Net Profit',
+          total: netProfit,
+          highlight: true
+        }
+      ],
+      summary: { totalIncome, totalCOGS, grossProfit, totalExpenses, netProfit }
+    }
+  }
+
+  async getBalanceSheet(businessId: string, asOfDate: string) {
+    
+    const assetAccounts = await getAccountBalances(businessId, 'asset', null, asOfDate)
+    const liabilityAccounts = await getAccountBalances(businessId, 'liability', null, asOfDate)
+    const equityAccounts = await getAccountBalances(businessId, 'equity', null, asOfDate)
+    
+    // Retained earnings = cumulative net profit from inception to asOfDate
+    const retainedEarnings = await getCumulativeNetProfit(businessId, asOfDate)
+    
+    const totalAssets = sum(assetAccounts)
+    const totalLiabilities = sum(liabilityAccounts)
+    const totalEquity = sum(equityAccounts) + retainedEarnings
+    
+    // CRITICAL VALIDATION:
+    if (Math.abs(totalAssets - (totalLiabilities + totalEquity)) > 0.01) {
+      console.error('BALANCE SHEET OUT OF BALANCE', { totalAssets, totalLiabilities, totalEquity })
+    }
+    
+    return {
+      assets: { accounts: assetAccounts, total: totalAssets },
+      liabilities: { accounts: liabilityAccounts, total: totalLiabilities },
+      equity: { accounts: equityAccounts, retainedEarnings, total: totalEquity },
+      balanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01
+    }
+  }
+
+  async getCashFlow(businessId: string, from: string, to: string) {
+    
+    // Operating: changes in bank accounts from operating activities
+    // Get all bank account transactions categorized as income/expense
+    
+    const bankAccounts = await getBankAccounts(businessId)
+    
+    // Operating activities
+    const cashReceipts = await sumDebits(bankAccounts, from, to)  // money in
+    const cashPayments = await sumCredits(bankAccounts, from, to)  // money out
+    const netOperating = cashReceipts - cashPayments
+    
+    return {
+      operating: { receipts: cashReceipts, payments: cashPayments, net: netOperating },
+      investing: { net: 0 },   // for later
+      financing: { net: 0 },   // for later
+      netChange: netOperating,
+      openingBalance: await getBankBalance(businessId, from),
+      closingBalance: await getBankBalance(businessId, to)
+    }
+  }
+
+  async getAccountsReceivableAging(businessId: string, asOfDate: string) {
+    
+    const unpaidInvoices = await getUnpaidInvoices(businessId, asOfDate)
+    
+    return unpaidInvoices.reduce((aging, invoice) => {
+      const daysPastDue = daysBetween(invoice.due_date, asOfDate)
+      
+      if (daysPastDue < 0) aging.current += invoice.balance_due
+      else if (daysPastDue <= 30) aging['1_30'] += invoice.balance_due
+      else if (daysPastDue <= 60) aging['31_60'] += invoice.balance_due
+      else if (daysPastDue <= 90) aging['61_90'] += invoice.balance_due
+      else aging['over_90'] += invoice.balance_due
+      
+      return aging
+    }, { current: 0, '1_30': 0, '31_60': 0, '61_90': 0, over_90: 0 })
+  }
+}
+
+══════════════════════════════════════════════════
+STEP 6 — API ROUTES
+══════════════════════════════════════════════════
+
+Build all routes in /packages/api/src/routes/
+Every route must use the accounting engine for financial operations.
+Never calculate totals in routes — always delegate to the engine.
+
+Authentication routes /api/auth:
+  POST /api/auth/signup      create user + business + seed chart of accounts
+  POST /api/auth/login       return JWT (7 day expiry)
+  POST /api/auth/logout
+  POST /api/auth/forgot-password
+  POST /api/auth/reset-password/:token
+  GET  /api/auth/me          return current user with business context
+
+Bank routes /api/banks:
+  GET    /api/banks                     list bank accounts
+  POST   /api/banks                     create bank account
+  PATCH  /api/banks/:id                 update bank account
+  DELETE /api/banks/:id
+  POST   /api/banks/:id/import-csv      
+    - Accept multipart file upload
+    - Parse CSV using BankStatementParser
+    - Apply bank rules
+    - AI categorize remaining
+    - Save to bank_transactions
+    - Return preview with suggested categories
+    - DO NOT auto-post journal entries yet (user must confirm)
+  POST   /api/banks/:id/import-pdf      same as CSV but PDF parsing
+  POST   /api/banks/:id/confirm-import  
+    - Accept array of confirmed transactions with account_ids
+    - Post journal entries for each using AccountingEngine
+    - Update transaction status to 'categorized'
+  GET    /api/banks/:id/transactions    list transactions with filters
+  PATCH  /api/banks/transactions/:id    update single transaction category
+  POST   /api/banks/transactions/:id/categorize
+    - Set account_id on transaction
+    - Post journal entry using AccountingEngine
+    - Update status to categorized
+
+Bank rules /api/bank-rules:
+  GET    /api/bank-rules               list rules
+  POST   /api/bank-rules               create rule
+  PATCH  /api/bank-rules/:id           update rule
+  DELETE /api/bank-rules/:id
+  POST   /api/bank-rules/test          test rule against existing transactions
+
+Reconciliation /api/reconciliations:
+  GET    /api/reconciliations          list reconciliations
+  POST   /api/reconciliations          start new reconciliation
+  GET    /api/reconciliations/:id      get with matched transactions
+  POST   /api/reconciliations/:id/match      mark transaction as cleared
+  POST   /api/reconciliations/:id/unmatch    unmark transaction
+  POST   /api/reconciliations/:id/complete   finalize reconciliation
+  GET    /api/reconciliations/:id/report     generate PDF report
+
+Accounts /api/accounts:
+  GET    /api/accounts                 list with balances
+  POST   /api/accounts                 create account
+  PATCH  /api/accounts/:id             update account
+  DELETE /api/accounts/:id             archive (never delete with transactions)
+  GET    /api/accounts/:id/ledger      general ledger for account with date filter
+
+Journal /api/journal:
+  GET    /api/journal                  list journal entries
+  POST   /api/journal                  create manual journal entry (validate balance)
+  GET    /api/journal/:id              get entry with all lines
+  DELETE /api/journal/:id              void entry (create reverse entry)
+
+Contacts /api/contacts:
+  GET    /api/contacts                 list with balance summary
+  POST   /api/contacts                 create
+  GET    /api/contacts/:id             get with financial summary
+  PATCH  /api/contacts/:id             update
+  GET    /api/contacts/:id/statement   generate statement PDF
+  POST   /api/contacts/:id/invite-portal send portal invite email
+  POST   /api/contacts/import          bulk import from CSV
+
+Invoices /api/invoices:
+  GET    /api/invoices                  list with filters
+  POST   /api/invoices                  create + post journal entry
+  GET    /api/invoices/:id              get with line items and payments
+  PATCH  /api/invoices/:id              update (only drafts)
+  DELETE /api/invoices/:id              void invoice (create reverse journal entry)
+  POST   /api/invoices/:id/send         email invoice to customer
+  POST   /api/invoices/:id/payments     record payment + post journal entry
+  GET    /api/invoices/:id/pdf          generate PDF
+  POST   /api/invoices/:id/reminder     send reminder email
+  POST   /api/invoices/:id/create-payment-link   Stripe payment link
+  POST   /api/invoices/:id/write-off    write off as bad debt
+
+Bills /api/bills:
+  GET    /api/bills                     list with filters
+  POST   /api/bills                     create + post journal entry
+  GET    /api/bills/:id                 get with line items and payments
+  PATCH  /api/bills/:id                 update
+  POST   /api/bills/:id/payments        record payment + post journal entry
+  GET    /api/bills/:id/pdf             generate PDF
+
+Reports /api/reports:
+  GET    /api/reports/profit-loss       ?from=&to=&compare=previous_period
+  GET    /api/reports/balance-sheet     ?as_of=
+  GET    /api/reports/cash-flow         ?from=&to=
+  GET    /api/reports/trial-balance     ?as_of=
+  GET    /api/reports/ar-aging          ?as_of=
+  GET    /api/reports/ap-aging          ?as_of=
+  GET    /api/reports/general-ledger    ?from=&to=&account_id=
+  GET    /api/reports/tax-summary       ?year=
+  POST   /api/reports/tax-export        generate ZIP with all reports + receipts
+
+Webhooks /api/webhooks:
+  POST   /api/webhooks/stripe           handle Stripe payment events
+
+══════════════════════════════════════════════════
+STEP 7 — FRONTEND ARCHITECTURE
+══════════════════════════════════════════════════
+
+Build the frontend in /packages/web/src/
+
+Structure:
+  /pages
+    /auth        Login, Signup, ForgotPassword, ResetPassword
+    /dashboard   Dashboard
+    /banking     BankAccounts, ImportStatement, Transactions, BankRules
+    /reconcile   ReconciliationList, ReconcileWorkspace
+    /accounts    ChartOfAccounts, AccountLedger
+    /contacts    ContactList, ContactDetail
+    /invoices    InvoiceList, InvoiceForm, InvoiceDetail
+    /bills       BillList, BillForm, BillDetail
+    /jobs        JobList, JobDetail
+    /reports     ProfitLoss, BalanceSheet, CashFlow, TrialBalance, Aging
+    /settings    Business, Team, Integrations
+  /components
+    /layout      Sidebar, TopNav, BottomNav (mobile)
+    /ui          Button, Input, Modal, Table, Badge, Card, DatePicker
+    /accounting  AccountSelector, JournalEntryView, AmountInput
+  /hooks
+    useAuth, useBusiness, useAccounts, useApi
+  /lib
+    api.ts       all API calls with proper error handling
+    format.ts    currency, date, number formatting
+
+Global state:
+  - Auth context: current user, JWT token
+  - Business context: selected business, plan limits
+  - React Query for all server state (caching, refetching)
+
+══════════════════════════════════════════════════
+STEP 8 — THE BANK IMPORT UI (most important screen)
+══════════════════════════════════════════════════
+
+This is the screen that was broken before. Build it properly.
+Located at /banking/import
+
+The import flow has 4 clear steps shown as a progress indicator:
+
+STEP 1 — Upload
+  - Select bank account (dropdown of existing bank accounts)
+  - Opening balance input (required for first import)
+  - Drop zone for CSV or PDF file
+  - Sample CSV format shown below drop zone
+  - "Upload and Preview" button
+
+STEP 2 — Review and Categorize
+  This is the core screen. Show a table with ALL parsed transactions:
+  
+  Columns:
+  | Date | Description | Amount | Category | Rule Applied | Confidence | Action |
+  
+  - Date: formatted date from CSV
+  - Description: cleaned merchant name
+  - Amount: colored GREEN for positive (income), RED for negative (expense)
+  - Category: dropdown selector with ALL chart of accounts
+    - Pre-selected if bank rule matched (show rule name badge)
+    - Pre-selected if AI suggested (show confidence % badge)
+    - Empty and highlighted orange if no suggestion
+  - Rule Applied: small grey badge showing which rule matched
+  - Confidence: percentage badge (green >80%, amber 50-80%, red <50%)
+  - Action: exclude checkbox (for transactions to skip)
+  
+  Above the table:
+  - Summary bar: X transactions | $X total credits | $X total debits
+  - Filter tabs: All | Needs Review | Auto-categorized | Excluded
+  - "Apply AI Suggestions" button for uncategorized transactions
+  - "Create Bank Rule" button (opens rule creator modal)
+  
+  Smart features:
+  - When user manually changes a category, ask:
+    "Create a rule for future transactions from [merchant]?"
+  - Bulk select and bulk categorize
+  - Show duplicate warning badge if transaction may already exist
+
+STEP 3 — Confirm
+  - Summary of what will be posted:
+    X transactions categorized
+    X income transactions totaling $X
+    X expense transactions totaling $X
+    X transactions excluded
+    X transactions still need review (warn if any)
+  - Opening balance: $X
+  - Closing balance: $X  
+  - Difference: $X (should match net of all transactions)
+  - "Post to Books" button
+  - Going back allowed to fix any categories
+
+STEP 4 — Complete
+  - Success message with transaction count
+  - Shortcut links:
+    "View transactions" → /banking/transactions
+    "Reconcile now" → /reconcile
+    "View P&L" → /reports/profit-loss
+  - Show any transactions still needing attention
+
+══════════════════════════════════════════════════
+STEP 9 — RECONCILIATION WORKSPACE
+══════════════════════════════════════════════════
+
+Located at /reconcile — modeled after Xero's reconciliation screen
+
+Layout: Two panels side by side (stacked on mobile)
+
+LEFT PANEL — Bank Statement
+  Header: Bank account name, Statement period, Statement balance input
+  List of all cleared bank transactions for the period
+  Each row: Date | Description | Amount | Matched badge
+  Total at bottom
+
+RIGHT PANEL — Books (ClearLedger records)
+  List of all unreconciled journal entries/transactions
+  Each row: Date | Description | Amount | Match button
+  Auto-match suggestions highlighted in blue
+  Total at bottom
+
+Matching logic:
+  When user clicks "Match" on a bank transaction:
+    Find journal entries with same/similar amount and ±3 day date
+    Show suggestions in a popup
+    User confirms match
+    Both rows show as matched and greyed out
+  
+  Auto-match (run on page load):
+    For each bank transaction find exact amount match within 3 days
+    If unique match: auto-match and show as "Auto-matched"
+    If multiple matches: show as "Needs review" with options
+
+Bottom summary bar:
+  Statement closing balance: $X
+  Cleared in books: $X  
+  Difference: $X (must reach $0 to complete)
+  "Finish Reconciliation" button (only enabled when difference = $0)
+
+══════════════════════════════════════════════════
+STEP 10 — REPORTS UI
+══════════════════════════════════════════════════
+
+All reports follow the same layout pattern:
+
+Header:
+  Report title
+  Business name and logo
+  Date range picker with presets:
+    [This Month] [Last Month] [This Quarter] [This Year] [Custom]
+  Compare toggle: Compare to previous period
+  Export buttons: [PDF] [CSV] [Print]
+
+Profit & Loss layout:
+  
+  INCOME                              $X,XXX.XX
+    Service Revenue          $X,XXX.XX
+    Product Sales              $XXX.XX
+  ─────────────────────────────────────────────
+  TOTAL INCOME                        $X,XXX.XX
+  
+  COST OF GOODS SOLD                    $XXX.XX
+    Materials                  $XXX.XX
+  ─────────────────────────────────────────────
+  GROSS PROFIT                        $X,XXX.XX
+  GROSS MARGIN                             XX.X%
+  
+  OPERATING EXPENSES                  $X,XXX.XX
+    Advertising                $XXX.XX
+    Communication              $XXX.XX
+    Fuel and Oil               $XXX.XX
+    Insurance                  $XXX.XX
+    Office Supplies            $XXX.XX
+    Rent                       $XXX.XX
+    [... all expense accounts ...]
+  ─────────────────────────────────────────────
+  TOTAL EXPENSES                      $X,XXX.XX
+  
+  ═════════════════════════════════════════════
+  NET PROFIT                          $X,XXX.XX
+  NET MARGIN                               XX.X%
+
+Each account row is clickable → drills into account ledger
+If compare period enabled, show two columns side by side with % change
+
+══════════════════════════════════════════════════
+STEP 11 — INVOICE SYSTEM
+══════════════════════════════════════════════════
+
+Invoice form at /invoices/new:
+  
+  Left side (form):
+    Customer selector with search
+    Invoice number (auto-generated, editable)
+    Issue date / Due date
+    
+    Line items table:
+      [Description] [Account] [Qty] [Unit] [Price] [Amount] [x]
+      Add line item button
+      Add from time entries button (opens time entry selector)
+    
+    Subtotal row
+    Discount row (amount or %)
+    Tax row (rate %)
+    Total row (bold, large)
+    
+    Notes textarea
+    Payment terms
+    Footer text
+    
+  Right side (live preview):
+    Real-time PDF preview rendered as HTML
+    Shows exactly what the PDF will look like
+    Updates as user types
+    
+  Action bar at bottom:
+    [Save Draft] [Preview PDF] [Save and Send]
+
+Invoice PDF must include:
+  - Business logo and name top right
+  - "INVOICE" in large text top left
+  - Invoice number, issue date, due date
+  - Bill To: customer name and address
+  - Line items table with clean formatting
+  - Subtotal, discount, tax, TOTAL DUE (large, highlighted)
+  - Payment instructions (bank details or Pay Online button)
+  - Footer text
+  - Business contact details at bottom
+  - Page X of Y if multiple pages
+
+Invoice email:
+  From: [Business Name] <invoices@yourdomain.com>
+  Subject: Invoice [INV-1001] from [Business Name] - $X,XXX.XX due [date]
+  
+  HTML email body:
+  - Business logo header
+  - "Hi [Customer Name],"
+  - Invoice summary table (number, date, due, amount)
+  - Large green "View and Pay Invoice" button
+  - "Or pay online at: [payment link]"
+  - PDF attached
+  - Footer with business contact
+
+══════════════════════════════════════════════════
+BUILD ORDER - EXECUTE IN THIS EXACT ORDER
+══════════════════════════════════════════════════
+
+1.  Set up pnpm monorepo workspace structure
+2.  Install all dependencies
+3.  Build complete database schema in Drizzle
+4.  Run migrations and verify all tables created
+5.  Seed chart of accounts template
+6.  Build authentication (signup creates user + business + seeds COA)
+7.  Build AccountingEngine class
+8.  Build BankStatementParser class  
+9.  Build ReportsEngine class
+10. Build all API routes (backend only first)
+11. Test all API routes with curl before touching frontend
+12. Build React frontend shell (layout, navigation, routing)
+13. Build bank account management pages
+14. Build bank import UI (4-step flow)
+15. Build reconciliation workspace
+16. Build chart of accounts page
+17. Build contacts list and detail pages
+18. Build invoice form with live preview
+19. Build invoice list with proper status badges
+20. Build bills pages
+21. Build reports pages (P&L, Balance Sheet, Cash Flow)
+22. Build dashboard with real data from reports engine
+23. Build settings pages
+24. Wire up Stripe webhooks
+25. Wire up email delivery (Resend)
+26. Test complete end-to-end flows
+27. Fix all bugs found
+28. Deploy to Railway
+
+DO NOT MOVE TO THE NEXT STEP UNTIL THE CURRENT ONE WORKS.
+Test each step with real data before proceeding.
+The accounting engine and parser are the foundation.
+If they are wrong everything built on top will be wrong.
+
+══════════════════════════════════════════════════
+CRITICAL RULES FOR THIS BUILD
+══════════════════════════════════════════════════
+
+1. Every financial transaction MUST create journal entries
+2. Reports MUST read from journal_lines — never from invoice totals
+3. The balance sheet MUST always balance (assets = liabilities + equity)
+4. Bank statement amounts: positive = money in, negative = money out
+5. Every imported transaction must be categorized before posting
+6. Never auto-post without user confirmation on imports
+7. All amounts stored as numeric(15,2) — never floats
+8. All dates stored as DATE — never timestamps for accounting dates
+9. Multi-business: EVERY query must filter by business_id
+10. Never expose one business's data to another business
+
+PROMPT 2 — CLAUDE CODE
+Run claude in your terminal then paste this
+You are rebuilding ClearLedger, a production accounting SaaS. 
+The previous build failed because the accounting engine was weak.
+You are starting completely fresh.
+
+First read the entire project structure if any exists.
+Then delete all existing source files and rebuild from scratch
+following these specifications exactly.
+
+YOUR PRIMARY MISSION:
+Build the accounting engine first. Everything else depends on it.
+The engine handles: journal entries, account balances, 
+bank statement parsing, transaction categorization, and reports.
+
+START WITH THESE FILES IN THIS ORDER:
+
+1. /packages/db/src/schema.ts
+   Build the complete Drizzle schema for all tables listed below.
+   Run: pnpm db:generate and pnpm db:migrate after.
+
+2. /packages/api/src/engine/accounting.ts
+   The AccountingEngine class with methods:
+   - postInvoice(invoiceId)
+   - postInvoicePayment(paymentId)
+   - postBill(billId)
+   - postBillPayment(paymentId)
+   - postBankTransaction(transactionId, accountId)
+   - validateEntry(lines)
+   - getAccountBalance(accountId, asOfDate)
+   - reverseEntry(journalEntryId)
+   
+   Test each method writes correct journal lines before continuing.
+
+3. /packages/api/src/engine/parser.ts
+   The BankStatementParser class with methods:
+   - parseCSV(fileContent, bankAccountId)
+   - parsePDF(fileBuffer, bankAccountId)
+   - applyCategoryRules(transactions, businessId)
+   - aiCategorize(transactions, chartOfAccounts)
+   - detectDuplicates(newTransactions, existingTransactions)
+   
+   Test CSV parsing with sample data before continuing:
+   Sample CSV:
+   Date,Description,Amount
+   01/15/2025,SHELL GAS STATION,-67.50
+   01/18/2025,CLIENT PAYMENT JOHNSON,495.25
+   01/20/2025,AMAZON MARKETPLACE,-124.30
+   01/22/2025,AT&T BILL PAYMENT,-189.00
+   
+   Expected output:
+   - SHELL: amount -67.50, suggested account: Fuel and Oil
+   - JOHNSON: amount +495.25, suggested account: Service Revenue  
+   - AMAZON: amount -124.30, suggested account: Office Supplies
+   - AT&T: amount -189.00, suggested account: Communication
+   
+   Verify these suggestions work before continuing.
+
+4. /packages/api/src/engine/reports.ts
+   The ReportsEngine class with methods:
+   - getProfitAndLoss(businessId, from, to, comparePrevious?)
+   - getBalanceSheet(businessId, asOfDate)
+   - getCashFlow(businessId, from, to)
+   - getTrialBalance(businessId, asOfDate)
+   - getARaging(businessId, asOfDate)
+   - getAPAging(businessId, asOfDate)
+   - getGeneralLedger(businessId, accountId, from, to)
+   
+   All methods must read from journal_lines — never from invoices table.
+   
+   Test getProfitAndLoss returns correct structure:
+   {
+     sections: [
+       { title: 'Income', accounts: [...], total: number },
+       { title: 'Cost of Goods Sold', accounts: [...], total: number },
+       { title: 'Gross Profit', total: number },
+       { title: 'Operating Expenses', accounts: [...], total: number },
+       { title: 'Net Profit', total: number }
+     ]
+   }
+
+5. /packages/api/src/routes/banks.ts
+   Build POST /api/banks/:id/import-csv
+   This must:
+   a. Accept multipart file upload
+   b. Parse CSV with BankStatementParser
+   c. Apply bank rules
+   d. AI categorize remainder
+   e. Detect duplicates
+   f. Return preview JSON (NOT post to books yet)
+   
+   Build POST /api/banks/:id/confirm-import
+   This must:
+   a. Accept confirmed transactions array
+   b. For each transaction call AccountingEngine.postBankTransaction
+   c. Return success with count posted
+   
+   Test with the sample CSV above.
+   Verify journal entries are created correctly.
+   Verify account balances update correctly.
+   Verify P&L report shows the categorized amounts.
+
+6. After engine is working, build all remaining API routes.
+   Then build the React frontend.
+   
+   Frontend priority order:
+   a. Auth pages (login, signup)
+   b. Bank import flow (4 steps)
+   c. Transaction list with category editing
+   d. Chart of accounts page
+   e. P&L report
+   f. Balance sheet
+   g. Invoice creation and sending
+   h. Reconciliation workspace
+   i. Dashboard
+   j. All remaining pages
+
+AT EVERY STEP: run the app and verify the feature works
+with real test data before moving to the next step.
+
+If any step fails, fix it completely before moving forward.
+Do not accumulate broken code — fix it immediately.
+
+Environment variables needed:
+DATABASE_URL=
+JWT_SECRET=
+ANTHROPIC_API_KEY=
+RESEND_API_KEY=
+FROM_EMAIL=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PUBLIC_KEY=
+SUPABASE_URL=
+SUPABASE_KEY=
+CLIENT_URL=
+PORT=5000
