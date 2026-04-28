@@ -6,7 +6,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Upload, CheckCircle, FileText, X, Pencil, AlertCircle, Tag, Zap } from "lucide-react";
+import { Upload, CheckCircle, FileText, X, Pencil, AlertCircle, Tag, Zap, ArrowLeftRight } from "lucide-react";
 
 interface Props {
   businessId: number;
@@ -196,6 +196,14 @@ export default function UploadPage({ businessId }: Props) {
   const uncategorizedCount = (parsed?.length ?? 0) - categorizedCount;
   const suggestedCount = parsed?.filter((t) => !!t.suggestedAccountId).length ?? 0;
 
+  const allSameDirection = parsed && parsed.length > 1 &&
+    (parsed.every((t) => t.type === "credit") || parsed.every((t) => t.type === "debit"));
+
+  function flipAllTypes() {
+    if (!parsed) return;
+    setParsed(parsed.map((tx) => ({ ...tx, type: tx.type === "credit" ? "debit" : "credit" })));
+  }
+
   // ── Success screen ──────────────────────────────────────────────────────────
   if (imported !== null) {
     return (
@@ -356,7 +364,28 @@ export default function UploadPage({ businessId }: Props) {
                   Apply all {suggestedCount} suggestions
                 </button>
               )}
+              <button
+                onClick={flipAllTypes}
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline ml-auto"
+                title="Flip all transactions between deposit and withdrawal"
+              >
+                <ArrowLeftRight className="w-3 h-3" />
+                Flip all directions
+              </button>
             </div>
+
+            {/* Warning when all transactions have the same direction */}
+            {allSameDirection && (
+              <div className="mt-2 flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  All {parsed.length} transactions were detected as{" "}
+                  <strong>{parsed[0].type === "credit" ? "deposits (+)" : "withdrawals (−)"}</strong>.
+                  If some are actually {parsed[0].type === "credit" ? "withdrawals" : "deposits"}, click any amount badge to flip it, or use{" "}
+                  <button onClick={flipAllTypes} className="font-semibold underline">Flip all directions</button>.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Table */}
@@ -391,13 +420,24 @@ export default function UploadPage({ businessId }: Props) {
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editRow!.amount}
-                          onChange={(e) => setEditRow((r) => ({ ...r!, amount: parseFloat(e.target.value) || 0 }))}
-                          className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-right"
-                        />
+                        <div className="flex gap-1">
+                          <select
+                            value={editRow!.type}
+                            onChange={(e) => setEditRow((r) => ({ ...r!, type: e.target.value as "debit" | "credit" }))}
+                            className="rounded border border-input bg-background px-1 py-1 text-xs"
+                          >
+                            <option value="credit">+ deposit</option>
+                            <option value="debit">− withdrawal</option>
+                          </select>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={editRow!.amount}
+                            onChange={(e) => setEditRow((r) => ({ ...r!, amount: parseFloat(e.target.value) || 0 }))}
+                            className="w-20 rounded border border-input bg-background px-2 py-1 text-xs text-right"
+                          />
+                        </div>
                       </td>
                       <td className="px-3 py-2" colSpan={2}>
                         <button onClick={saveEdit} className="text-xs font-medium text-primary hover:underline mr-3">Save</button>
@@ -410,8 +450,19 @@ export default function UploadPage({ businessId }: Props) {
                       <td className="px-3 py-2.5 text-foreground max-w-[180px]">
                         <span className="block truncate text-xs">{tx.description}</span>
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-medium tabular-nums text-xs ${tx.type === "credit" ? "text-emerald-600" : "text-rose-600"}`}>
-                        {tx.type === "credit" ? "+" : "−"}{formatCurrency(tx.amount)}
+                      <td className="px-3 py-2.5 text-right tabular-nums text-xs">
+                        <button
+                          title="Click to toggle between deposit (+) and withdrawal (−)"
+                          onClick={() => {
+                            const next = [...parsed!];
+                            next[i] = { ...tx, type: tx.type === "credit" ? "debit" : "credit" };
+                            setParsed(next);
+                          }}
+                          className={`font-medium px-1.5 py-0.5 rounded hover:opacity-70 transition-opacity cursor-pointer
+                            ${tx.type === "credit" ? "text-emerald-600 bg-emerald-50" : "text-rose-600 bg-rose-50"}`}
+                        >
+                          {tx.type === "credit" ? "+" : "−"}{formatCurrency(tx.amount)}
+                        </button>
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1.5">

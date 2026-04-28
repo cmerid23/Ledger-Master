@@ -194,15 +194,18 @@ function parseCsvTsv(content: string, sep = ","): ParsedTx[] {
   const debitIdx  = idx(["debit", "withdrawal", "withdrawals", "charge", "charges", "withdraw", "debit amount", "money out", "out", "dr"]);
   const creditIdx = idx(["credit", "deposit", "deposits", "payment", "payments", "receive", "credit amount", "money in", "in", "cr"]);
   const typeIdx   = idx(["type", "transaction type", "dr/cr", "dr cr", "debit/credit"]);
+  const balanceIdx= idx(["balance", "running balance", "ledger balance", "available balance", "ending balance", "closing balance"]);
 
   // If we still can't find a date column, try column 0 if it looks like dates
   const effectiveDateIdx = dateIdx >= 0 ? dateIdx : 0;
 
-  const txns: ParsedTx[] = [];
-  // For headerless files, start parsing from the first data row (same as headerRowIdx).
-  // For files with headers, skip the header row (headerRowIdx + 1).
-  const dataStartIdx = isHeaderless ? headerRowIdx : headerRowIdx + 1;
+  // ── First pass: collect raw rows ─────────────────────────────────────────
+  // We do two passes so we can use balance changes to determine direction
+  // for banks that export all amounts as positive in a single column.
+  interface RawRow { line: number; date: string; description: string; rawAmt: string; rawBalance: string; typeHint?: string; }
+  const rawRows: RawRow[] = [];
 
+  const dataStartIdx = isHeaderless ? headerRowIdx : headerRowIdx + 1;
   for (let i = dataStartIdx; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
@@ -213,54 +216,100 @@ function parseCsvTsv(content: string, sep = ","): ParsedTx[] {
     const date = normalizeDate(rawDate);
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
 
-    // For headerless files, try to find the description from non-date, non-numeric columns
     let description = descIdx >= 0 ? cols[descIdx] : undefined;
     if (!description && isHeaderless) {
       for (let c = cols.length - 1; c >= 0; c--) {
         if (c === effectiveDateIdx) continue;
         const cell = cols[c];
-        if (cell && !/^[\d\s$,.()-]+$/.test(cell) && cell !== "*") {
-          description = cell; break;
-        }
+        if (cell && !/^[\d\s$,.()-]+$/.test(cell) && cell !== "*") { description = cell; break; }
       }
     }
     description = description || `Transaction ${i}`;
 
-    // Determine amount and type
-    if (amtIdx >= 0 && cols[amtIdx] !== undefined && cols[amtIdx] !== "") {
-      const raw = (cols[amtIdx] || "").replace(/[$,\s()]/g, "");
-      // Some banks use parentheses for negatives: (123.45) → -123.45
-      const negative = cols[amtIdx].trim().startsWith("(") || (cols[amtIdx].trim().startsWith("-"));
-      const val = negative ? -Math.abs(parseFloat(raw) || 0) : (parseFloat(raw) || 0);
-      if (val === 0) continue;
-
-      // Check if a type/DR/CR column says which direction
-      let type: "debit" | "credit" = val < 0 ? "debit" : "credit";
-      if (typeIdx >= 0 && cols[typeIdx]) {
-        const t = cols[typeIdx].toLowerCase().trim();
-        if (t === "dr" || t === "debit" || t === "d") type = "debit";
-        else if (t === "cr" || t === "credit" || t === "c") type = "credit";
-      }
-      txns.push({ date, description, amount: Math.abs(val), type });
-
-    } else if (debitIdx >= 0 || creditIdx >= 0) {
-      const debit  = debitIdx  >= 0 ? stripMoney(cols[debitIdx]  ?? "0") : 0;
-      const credit = creditIdx >= 0 ? stripMoney(cols[creditIdx] ?? "0") : 0;
-      if (debit > 0)  txns.push({ date, description, amount: debit,  type: "debit" });
-      if (credit > 0) txns.push({ date, description, amount: credit, type: "credit" });
-
-    } else {
-      // Last resort: scan all numeric columns in the row to find an amount
+    // Skip rows with no useful debit/credit/amount column (header-like rows in middle of file)
+    if (amtIdx < 0 && debitIdx < 0 && creditIdx < 0) {
+      // Last-resort: find the first meaningful numeric column
+      let found = false;
       for (let c = 0; c < cols.length; c++) {
         if (c === effectiveDateIdx || c === descIdx) continue;
         const raw = (cols[c] || "").replace(/[$,\s()]/g, "");
         const val = parseFloat(raw);
         if (!isNaN(val) && val !== 0 && Math.abs(val) < 1_000_000) {
-          txns.push({ date, description, amount: Math.abs(val), type: val < 0 ? "debit" : "credit" });
-          break;
+          rawRows.push({ line: i, date, description, rawAmt: cols[c] ?? "", rawBalance: balanceIdx >= 0 ? (cols[balanceIdx] ?? "") : "", typeHint: typeIdx >= 0 ? cols[typeIdx] : undefined });
+          found = true; break;
+        }
+      }
+      if (!found) continue;
+    } else {
+      rawRows.push({
+        line: i, date, description,
+        rawAmt: amtIdx >= 0 ? (cols[amtIdx] ?? "") : "",
+        rawBalance: balanceIdx >= 0 ? (cols[balanceIdx] ?? "") : "",
+        typeHint: typeIdx >= 0 ? cols[typeIdx] : undefined,
+        // Embed debit/credit separately for split-column format
+        ...(amtIdx < 0 && (debitIdx >= 0 || creditIdx >= 0) ? {
+          _debit: debitIdx >= 0 ? cols[debitIdx] : "",
+          _credit: creditIdx >= 0 ? cols[creditIdx] : "",
+        } : {}),
+      } as RawRow & { _debit?: string; _credit?: string });
+    }
+  }
+
+  // ── Balance-based direction detection ────────────────────────────────────
+  // If all amounts are positive and we have a balance column, use balance delta to determine direction
+  const balances = rawRows.map(r => stripMoney(r.rawBalance));
+  const hasBalanceCol = balanceIdx >= 0 && balances.some(b => b > 0);
+  const allRawAmtsPositive = amtIdx >= 0 && rawRows.every(r => {
+    const raw = r.rawAmt.replace(/[$,\s()]/g, "");
+    const val = parseFloat(raw);
+    // Skip empty/zero rows in this check — they don't indicate sign direction
+    if (isNaN(val) || val === 0) return true;
+    const neg = r.rawAmt.trim().startsWith("(") || r.rawAmt.trim().startsWith("-");
+    return !neg && val > 0;
+  });
+
+  // ── Second pass: produce ParsedTx[] ──────────────────────────────────────
+  const txns: ParsedTx[] = [];
+  for (let ri = 0; ri < rawRows.length; ri++) {
+    const row = rawRows[ri] as RawRow & { _debit?: string; _credit?: string };
+
+    // Split-column (Debit/Withdrawal vs Credit/Deposit)
+    if (amtIdx < 0 && (debitIdx >= 0 || creditIdx >= 0)) {
+      const debit  = stripMoney(row._debit  ?? "0");
+      const credit = stripMoney(row._credit ?? "0");
+      if (debit > 0)  txns.push({ date: row.date, description: row.description, amount: debit,  type: "debit" });
+      if (credit > 0) txns.push({ date: row.date, description: row.description, amount: credit, type: "credit" });
+      continue;
+    }
+
+    // Single amount column
+    const raw = row.rawAmt.replace(/[$,\s()]/g, "");
+    const negative = row.rawAmt.trim().startsWith("(") || row.rawAmt.trim().startsWith("-");
+    const val = negative ? -Math.abs(parseFloat(raw) || 0) : (parseFloat(raw) || 0);
+    if (val === 0) continue;
+
+    let type: "debit" | "credit" = val < 0 ? "debit" : "credit";
+
+    // 1. Explicit type column takes precedence
+    if (row.typeHint) {
+      const t = row.typeHint.toLowerCase().trim();
+      if (t === "dr" || t === "debit" || t === "d" || t === "withdrawal" || t === "withdraw") type = "debit";
+      else if (t === "cr" || t === "credit" || t === "c" || t === "deposit") type = "credit";
+    }
+    // 2. Balance delta — if all amounts are positive and we have balances, use delta to detect direction
+    else if (allRawAmtsPositive && hasBalanceCol) {
+      const prevBal = ri > 0 ? balances[ri - 1] : null;
+      const curBal  = balances[ri];
+      if (prevBal !== null && curBal > 0 && prevBal > 0) {
+        const delta = curBal - prevBal;
+        // Allow small rounding tolerance
+        if (Math.abs(Math.abs(delta) - Math.abs(val)) < 0.02) {
+          type = delta < 0 ? "debit" : "credit";
         }
       }
     }
+
+    txns.push({ date: row.date, description: row.description, amount: Math.abs(val), type });
   }
 
   return txns;
