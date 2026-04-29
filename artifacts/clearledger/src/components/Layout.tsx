@@ -31,6 +31,7 @@ import {
   Repeat,
   Sparkles,
   Code2,
+  Zap,
 } from "lucide-react";
 import {
   useListBusinesses,
@@ -64,6 +65,7 @@ const navItems = [
   { path: "/reconcile", label: "Reconciliation", icon: CheckCircle },
   { path: "/reports", label: "Reports", icon: BarChart3 },
   { path: "/upload", label: "Upload Statement", icon: Upload },
+  { path: "/bank-rules", label: "Bank Rules", icon: Zap },
   { path: "/receipts", label: "Receipts", icon: Receipt },
   { path: "/tax-pack", label: "Tax Pack", icon: Archive },
   { path: "/recurring-billing", label: "Recurring Billing", icon: Repeat },

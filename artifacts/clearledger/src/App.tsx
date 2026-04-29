@@ -42,6 +42,7 @@ import ProposalsPage from "@/pages/Proposals";
 import RecurringBillingPage from "@/pages/RecurringBilling";
 import DeveloperApiPage from "@/pages/DeveloperApi";
 import AiToolsPage from "@/pages/AiTools";
+import BankRulesPage from "@/pages/BankRules";
 import ClientPortalPage from "@/pages/ClientPortal";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -149,6 +150,9 @@ function ProtectedApp() {
         </Route>
         <Route path="/ai-tools">
           <AiToolsPage businessId={businessId} />
+        </Route>
+        <Route path="/bank-rules">
+          <BankRulesPage businessId={businessId} />
         </Route>
         <Route path="/">
           <Redirect to="/dashboard" />

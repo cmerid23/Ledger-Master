@@ -3,7 +3,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, FileText, Briefcase, Truck, MoreHorizontal, X,
   Users, ClipboardList, Store, FileCheck, BookOpen, CreditCard,
-  ScrollText, CheckCircle, BarChart3, Upload, Receipt, Archive, Settings,
+  ScrollText, CheckCircle, BarChart3, Upload, Receipt, Archive, Settings, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,7 @@ const MORE_LINKS = [
   { path: "/reconcile",    label: "Reconciliation",   icon: CheckCircle },
   { path: "/reports",      label: "Reports",          icon: BarChart3 },
   { path: "/upload",       label: "Upload Statement", icon: Upload },
+  { path: "/bank-rules",  label: "Bank Rules",       icon: Zap },
   { path: "/receipts",     label: "Receipts",         icon: Receipt },
   { path: "/tax-pack",     label: "Tax Pack",         icon: Archive },
   { path: "/settings",     label: "Settings",         icon: Settings },
